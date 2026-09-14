@@ -7,7 +7,7 @@ import {
 
 import TeacherSignup from "./pages/TeacherSignup";
 import StudentSignup from "./pages/StudentSignup";
-
+import Admin1Attendance from "./pages/Admin1Attendance";
 
 function App() {
 
@@ -40,6 +40,10 @@ function App() {
                     element={<StudentSignup />}
                 />
 
+                <Route
+                    path="/admin1/attendance-dashboard"
+                    element={<Admin1Attendance />}
+                />
             </Routes>
 
         </BrowserRouter>
