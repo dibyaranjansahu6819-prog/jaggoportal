@@ -1,81 +1,104 @@
 from django.urls import path
 
 from .views import (
-    AdminAttendanceView,
-    StudentAttendanceSaveView,
-    TeacherAttendanceSaveView,
-    AvailableVolunteerView,
-    VolunteerAttendanceAddView,
-    VolunteerAttendanceSaveView,
-    VolunteerAttendanceDeleteView,
-    AttendancePhotoUploadView,
-    AttendancePhotoDeleteView,
+    StartAttendanceSessionView,
+    CurrentAttendanceSessionView,
+    EndAttendanceSessionView,
+
+    StudentAttendanceListView,
+    SaveStudentAttendanceView,
+
+    VolunteerListView,
+    CurrentVolunteerAttendanceView,
+    AddVolunteerAttendanceView,
+    SaveVolunteerAttendanceView,
+
+    TodayAttendanceSummaryView,
+    AttendanceHistoryView,
 )
 
 
 urlpatterns = [
 
-    # Main Admin 1 attendance toolkit
+    # ========================================================
+    # ATTENDANCE SESSION
+    # ========================================================
+
     path(
-        "",
-        AdminAttendanceView.as_view(),
-        name="admin-attendance"
+        "session/start/",
+        StartAttendanceSessionView.as_view(),
+        name="attendance-session-start",
     ),
 
-    # Student attendance
+    path(
+        "session/current/",
+        CurrentAttendanceSessionView.as_view(),
+        name="attendance-session-current",
+    ),
+
+    path(
+        "session/end/",
+        EndAttendanceSessionView.as_view(),
+        name="attendance-session-end",
+    ),
+
+    # ========================================================
+    # STUDENT ATTENDANCE
+    # ========================================================
+
+    path(
+        "students/",
+        StudentAttendanceListView.as_view(),
+        name="student-attendance-list",
+    ),
+
     path(
         "students/save/",
-        StudentAttendanceSaveView.as_view(),
-        name="student-attendance-save"
+        SaveStudentAttendanceView.as_view(),
+        name="student-attendance-save",
     ),
 
-    # Teacher attendance
+    # ========================================================
+    # VOLUNTEERS
+    # ========================================================
+
     path(
-        "teachers/save/",
-        TeacherAttendanceSaveView.as_view(),
-        name="teacher-attendance-save"
+        "volunteers/",
+        VolunteerListView.as_view(),
+        name="volunteer-list",
     ),
 
-    # Volunteers available for adding
     path(
-        "volunteers/available/",
-        AvailableVolunteerView.as_view(),
-        name="available-volunteers"
+        "volunteers/current/",
+        CurrentVolunteerAttendanceView.as_view(),
+        name="current-volunteer-attendance",
     ),
 
-    # Add volunteer to today's attendance
     path(
         "volunteers/add/",
-        VolunteerAttendanceAddView.as_view(),
-        name="volunteer-attendance-add"
+        AddVolunteerAttendanceView.as_view(),
+        name="add-volunteer-attendance",
     ),
 
-    # Update volunteer attendance
     path(
         "volunteers/save/",
-        VolunteerAttendanceSaveView.as_view(),
-        name="volunteer-attendance-save"
+        SaveVolunteerAttendanceView.as_view(),
+        name="save-volunteer-attendance",
     ),
 
-    # Remove volunteer from daily attendance
+    # ========================================================
+    # SUMMARY / HISTORY
+    # ========================================================
+
     path(
-        "volunteers/<int:attendance_id>/delete/",
-        VolunteerAttendanceDeleteView.as_view(),
-        name="volunteer-attendance-delete"
+        "today/",
+        TodayAttendanceSummaryView.as_view(),
+        name="today-attendance-summary",
     ),
 
-    # Attendance photos
-   path(
-    "photos/upload/",
-    AttendancePhotoUploadView.as_view(),
-    name="attendance-photo-upload"
-),
-
-path(
-    "photos/<int:photo_id>/delete/",
-    AttendancePhotoDeleteView.as_view(),
-    name="attendance-photo-delete"
-),
-
+    path(
+        "history/",
+        AttendanceHistoryView.as_view(),
+        name="attendance-history",
+    ),
 ]
-

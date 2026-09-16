@@ -1,501 +1,870 @@
+from datetime import timedelta
 
-from datetime import date
-
-from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.utils import timezone
 
 from rest_framework import status
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsAdmin1
 from students.models import Student
 from teachers.models import Teacher
-
-from .models import (
-    StudentAttendance,
-    TeacherAttendance,
-    Volunteer,
-    VolunteerDailyAttendance,
+from admin2.models import (
+    VolunteerAccountStatus,
+    VolunteerAssignment,
 )
 
-from .models import AttendancePhoto
-from .serializers import AttendancePhotoSerializer
+from .models import (
+    AttendanceSession,
+    StudentAttendance,
+    VolunteerAttendance,
+)
+
+from .serializers import (
+    AttendanceSessionSerializer,
+    StudentAttendanceSerializer,
+    VolunteerAttendanceSerializer,
+)
 
 
 # ============================================================
-# ATTENDANCE TOOLKIT
+# ACTIVE ATTENDANCE SESSION
 # ============================================================
 
-class AdminAttendanceView(APIView):
+def get_active_session():
+    """
+    Return the currently active attendance session.
+
+    If the 10-minute session has expired, automatically
+    close it and return None.
+    """
+
+    session = (
+        AttendanceSession.objects
+        .filter(is_active=True)
+        .order_by("-started_at")
+        .first()
+    )
+
+    if session and session.has_expired:
+        session.close_if_expired()
+        return None
+
+    return session
+
+
+# ============================================================
+# TODAY'S ASSIGNED VOLUNTEERS
+# ============================================================
+
+def get_today_assigned_volunteer_ids():
+    """
+    Return volunteer IDs that have a successfully sent
+    Admin 2 assignment for today.
+    """
+
+    today = timezone.localdate()
+
+    return set(
+        VolunteerAssignment.objects
+        .filter(
+            assignment_date=today,
+            email_status="SENT",
+        )
+        .values_list(
+            "volunteer_id",
+            flat=True,
+        )
+    )
+
+
+# ============================================================
+# TODAY'S ASSIGNED VOLUNTEER TASKS
+# ============================================================
+
+def get_today_assigned_volunteer_tasks():
+    """
+    Return today's successfully sent Admin 2 assignments.
+
+    Result:
+
+        {
+            volunteer_id: task
+        }
+
+    Example:
+
+        {
+            1: "TEACHING",
+            2: "CHECKING",
+        }
+
+    If multiple assignments currently exist for the same
+    volunteer on the same day, the newest assignment is used.
+    """
+
+    today = timezone.localdate()
+
+    assignments = (
+        VolunteerAssignment.objects
+        .filter(
+            assignment_date=today,
+            email_status="SENT",
+        )
+        .order_by(
+            "volunteer_id",
+            "-created_at",
+        )
+    )
+
+    assignment_tasks = {}
+
+    for assignment in assignments:
+
+        if assignment.volunteer_id not in assignment_tasks:
+            assignment_tasks[
+                assignment.volunteer_id
+            ] = assignment.task
+
+    return assignment_tasks
+
+
+# ============================================================
+# START ATTENDANCE SESSION
+# ============================================================
+
+class StartAttendanceSessionView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    @transaction.atomic
+    def post(self, request):
+
+        session = get_active_session()
+
+        # ----------------------------------------------------
+        # Only one active session at a time
+        # ----------------------------------------------------
+
+        if session:
+
+            return Response(
+                {
+                    "message": (
+                        "An attendance session is already active."
+                    ),
+                    "session": AttendanceSessionSerializer(
+                        session
+                    ).data,
+                }
+            )
+
+        # ----------------------------------------------------
+        # Backend controls session time
+        # ----------------------------------------------------
+
+        now = timezone.now()
+
+        session = AttendanceSession.objects.create(
+            admin=request.user,
+            expires_at=now + timedelta(minutes=10),
+        )
+
+        return Response(
+            {
+                "message": (
+                    "Today's attendance session started."
+                ),
+                "session": AttendanceSessionSerializer(
+                    session
+                ).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ============================================================
+# CURRENT ATTENDANCE SESSION
+# ============================================================
+
+class CurrentAttendanceSessionView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
 
     def get(self, request):
 
-        selected_date = request.query_params.get(
-            "date"
+        session = get_active_session()
+
+        if not session:
+
+            return Response(
+                {
+                    "session": None,
+                    "message": (
+                        "No active attendance session."
+                    ),
+                }
+            )
+
+        return Response(
+            {
+                "session": AttendanceSessionSerializer(
+                    session
+                ).data,
+            }
         )
 
-        if not selected_date:
-            selected_date = date.today().isoformat()
+
+# ============================================================
+# END ATTENDANCE SESSION
+# ============================================================
+
+class EndAttendanceSessionView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    def post(self, request):
+
+        session = get_active_session()
+
+        if not session:
+
+            return Response(
+                {
+                    "error": (
+                        "No active attendance session."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        session.is_active = False
+        session.ended_at = timezone.now()
+
+        session.save(
+            update_fields=[
+                "is_active",
+                "ended_at",
+            ]
+        )
+
+        return Response(
+            {
+                "message": (
+                    "Attendance session ended."
+                ),
+                "session": AttendanceSessionSerializer(
+                    session
+                ).data,
+            }
+        )
 
 
-        # ----------------------------------------------------
-        # STUDENTS
-        # ----------------------------------------------------
+# ============================================================
+# STUDENT ATTENDANCE LIST
+# ============================================================
+
+class StudentAttendanceListView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    def get(self, request):
+
+        session = get_active_session()
+
+        if not session:
+
+            return Response(
+                {
+                    "session": None,
+                    "students": [],
+                }
+            )
 
         students = (
             Student.objects
             .all()
-            .order_by("roll_no")
+            .order_by(
+                "student_class",
+                "roll_no",
+            )
         )
 
-        student_data = []
+        records = {
+            record.student_id: record
+            for record in StudentAttendance.objects.filter(
+                session=session
+            )
+        }
+
+        data = []
 
         for student in students:
 
-            attendance = (
-                StudentAttendance.objects
+            record = records.get(
+                student.id
+            )
+
+            data.append(
+                {
+                    "student_id": student.id,
+                    "roll_no": student.roll_no,
+                    "name": student.name,
+                    "class": student.student_class,
+                    "status": (
+                        record.status
+                        if record
+                        else "ABSENT"
+                    ),
+                }
+            )
+
+        return Response(
+            {
+                "session_id": session.id,
+                "date": session.session_date,
+                "students": data,
+            }
+        )
+
+
+# ============================================================
+# SAVE STUDENT ATTENDANCE
+# ============================================================
+
+class SaveStudentAttendanceView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    @transaction.atomic
+    def post(self, request):
+
+        session = get_active_session()
+
+        if not session:
+
+            return Response(
+                {
+                    "error": (
+                        "Attendance session is inactive "
+                        "or has expired."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        student_id = request.data.get(
+            "student"
+        )
+
+        attendance_status = request.data.get(
+            "status"
+        )
+
+        # ----------------------------------------------------
+        # Validate student
+        # ----------------------------------------------------
+
+        if not student_id:
+
+            return Response(
+                {
+                    "error": "student is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ----------------------------------------------------
+        # Validate status
+        # ----------------------------------------------------
+
+        if attendance_status not in [
+            "PRESENT",
+            "ABSENT",
+        ]:
+
+            return Response(
+                {
+                    "error": (
+                        "status must be PRESENT or ABSENT."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ----------------------------------------------------
+        # Get student
+        # ----------------------------------------------------
+
+        try:
+
+            student = Student.objects.get(
+                id=student_id
+            )
+
+        except Student.DoesNotExist:
+
+            return Response(
+                {
+                    "error": "Student not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ----------------------------------------------------
+        # Save attendance
+        # ----------------------------------------------------
+
+        attendance, created = (
+            StudentAttendance.objects.update_or_create(
+                session=session,
+                student=student,
+                defaults={
+                    "status": attendance_status,
+                },
+            )
+        )
+
+        return Response(
+            {
+                "message": (
+                    "Student attendance saved."
+                ),
+                "attendance": StudentAttendanceSerializer(
+                    attendance
+                ).data,
+            },
+            status=(
+                status.HTTP_201_CREATED
+                if created
+                else status.HTTP_200_OK
+            ),
+        )
+
+
+# ============================================================
+# VOLUNTEER LIST
+# ============================================================
+
+class VolunteerListView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    def get(self, request):
+
+        # ----------------------------------------------------
+        # Only volunteers who are not REMOVED are available
+        # for Admin 1's "+ Add Volunteer" list.
+        #
+        # Historical attendance remains untouched.
+        # ----------------------------------------------------
+
+        removed_ids = set(
+            VolunteerAccountStatus.objects
+            .filter(
+                status="REMOVED"
+            )
+            .values_list(
+                "volunteer_id",
+                flat=True,
+            )
+        )
+
+        volunteers = (
+            Teacher.objects
+            .exclude(
+                id__in=removed_ids
+            )
+            .select_related("subject")
+            .order_by("name")
+        )
+
+        assigned_ids = (
+            get_today_assigned_volunteer_ids()
+        )
+
+        data = []
+
+        for volunteer in volunteers:
+
+            data.append(
+                {
+                    "id": volunteer.id,
+                    "user_id": volunteer.user_id,
+                    "name": volunteer.name,
+                    "subject": (
+                        volunteer.subject.name
+                        if volunteer.subject
+                        else None
+                    ),
+                    "email": volunteer.email,
+                    "free_days": volunteer.free_days,
+                    "assigned_today": (
+                        volunteer.id in assigned_ids
+                    ),
+                }
+            )
+
+        return Response(
+            {
+                "volunteers": data,
+            }
+        )
+
+
+# ============================================================
+# CURRENT VOLUNTEER ATTENDANCE
+# ============================================================
+
+class CurrentVolunteerAttendanceView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    @transaction.atomic
+    def get(self, request):
+
+        session = get_active_session()
+
+        if not session:
+
+            return Response(
+                {
+                    "session": None,
+                    "volunteers": [],
+                }
+            )
+
+        # ----------------------------------------------------
+        # Get today's Admin 2 assignments.
+        #
+        # Only successfully sent assignments count.
+        # ----------------------------------------------------
+
+        assignment_tasks = (
+            get_today_assigned_volunteer_tasks()
+        )
+
+        # ----------------------------------------------------
+        # Automatically create attendance records for
+        # assigned volunteers.
+        #
+        # Admin 2 Teaching -> TEACHING
+        # Admin 2 Checking -> CHECKING
+        #
+        # ASSIGNED source is preserved.
+        # ----------------------------------------------------
+
+        for volunteer_id, assigned_task in (
+            assignment_tasks.items()
+        ):
+
+            # -----------------------------------------------
+            # Do not create attendance for removed volunteers.
+            # -----------------------------------------------
+
+            account_status = (
+                VolunteerAccountStatus.objects
                 .filter(
-                    student=student,
-                    date=selected_date
+                    volunteer_id=volunteer_id
                 )
                 .first()
             )
 
-            student_data.append({
+            if (
+                account_status
+                and account_status.status == "REMOVED"
+            ):
+                continue
 
-                "student": student.id,
-
-                "roll_no": student.roll_no,
-
-                "name": student.name,
-
-                "student_class":
-                    student.student_class,
-
-                "status":
-                    attendance.status
-                    if attendance
-                    else "ABSENT",
-
-            })
-
+            VolunteerAttendance.objects.get_or_create(
+                session=session,
+                volunteer_id=volunteer_id,
+                defaults={
+                    "task": assigned_task,
+                    "status": "ABSENT",
+                    "attendance_source": "ASSIGNED",
+                },
+            )
 
         # ----------------------------------------------------
-        # VOLUNTEERS
+        # Get all attendance records for this session.
         # ----------------------------------------------------
 
-        volunteers = (
-            VolunteerDailyAttendance.objects
-            .select_related("volunteer")
+        records = (
+            VolunteerAttendance.objects
             .filter(
-                date=selected_date
+                session=session
+            )
+            .select_related(
+                "volunteer"
             )
             .order_by(
                 "volunteer__name"
             )
         )
 
-        volunteer_data = []
-
-        for attendance in volunteers:
-
-            volunteer_data.append({
-
-                "id": attendance.id,
-
-                "volunteer":
-                    attendance.volunteer.id,
-
-                "name":
-                    attendance.volunteer.name,
-
-                "status":
-                    attendance.status,
-
-            })
-
-
-        # ----------------------------------------------------
-        # PHOTOS
-        # ----------------------------------------------------
-
-        photos = (
-            AttendanceSessionPhoto.objects
-            .filter(
-                date=selected_date
-            )
-            .order_by(
-                "-uploaded_at"
-            )
-        )
-
-        student_photos = []
-        volunteer_photos = []
-
-        for photo in photos:
-
-            data = {
-                "id": photo.id,
-                "photo_type": photo.photo_type,
-                "url": request.build_absolute_uri(
-                    photo.photo.url
+        return Response(
+            {
+                "session_id": session.id,
+                "date": session.session_date,
+                "volunteers": (
+                    VolunteerAttendanceSerializer(
+                        records,
+                        many=True,
+                    ).data
                 ),
             }
-
-            if photo.photo_type == "STUDENT":
-                student_photos.append(data)
-
-            else:
-                volunteer_photos.append(data)
-
-
-        return Response({
-
-            "date":
-                selected_date,
-
-            "students":
-                student_data,
-
-            "volunteers":
-                volunteer_data,
-
-            "student_photos":
-                student_photos,
-
-            "volunteer_photos":
-                volunteer_photos,
-
-        })
+        )
 
 
 # ============================================================
-# STUDENT ATTENDANCE SAVE
+# ADD VOLUNTEER MANUALLY
 # ============================================================
 
-class StudentAttendanceSaveView(APIView):
+class AddVolunteerAttendanceView(APIView):
 
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    @transaction.atomic
     def post(self, request):
 
-        student_id = request.data.get(
-            "student"
-        )
+        session = get_active_session()
 
-        attendance_date = request.data.get(
-            "date"
-        )
-
-        attendance_status = request.data.get(
-            "status"
-        )
-
-
-        if not student_id:
+        if not session:
 
             return Response(
                 {
-                    "error":
-                        "Student is required."
+                    "error": (
+                        "Attendance session is inactive "
+                        "or has expired."
+                    )
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
-
-
-        if not attendance_date:
-
-            return Response(
-                {
-                    "error":
-                        "Date is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-
-        if attendance_status not in [
-            "PRESENT",
-            "ABSENT",
-        ]:
-
-            return Response(
-                {
-                    "error":
-                        "Invalid attendance status."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-
-        student = get_object_or_404(
-            Student,
-            id=student_id
-        )
-
-
-        attendance, created = (
-            StudentAttendance.objects
-            .update_or_create(
-
-                student=student,
-
-                date=attendance_date,
-
-                defaults={
-                    "status":
-                        attendance_status
-                }
-
-            )
-        )
-
-
-        return Response({
-
-            "id":
-                attendance.id,
-
-            "student":
-                attendance.student.id,
-
-            "status":
-                attendance.status,
-
-        })
-
-
-# ============================================================
-# TEACHER ATTENDANCE SAVE
-# ============================================================
-
-class TeacherAttendanceSaveView(APIView):
-
-    def post(self, request):
-
-        teacher_id = request.data.get(
-            "teacher"
-        )
-
-        attendance_date = request.data.get(
-            "date"
-        )
-
-        attendance_status = request.data.get(
-            "status"
-        )
-
-
-        if attendance_status not in [
-            "PRESENT",
-            "ABSENT",
-        ]:
-
-            return Response(
-                {
-                    "error":
-                        "Invalid attendance status."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-
-        teacher = get_object_or_404(
-            Teacher,
-            id=teacher_id
-        )
-
-
-        attendance, created = (
-            TeacherAttendance.objects
-            .update_or_create(
-
-                teacher=teacher,
-
-                date=attendance_date,
-
-                defaults={
-                    "status":
-                        attendance_status
-                }
-
-            )
-        )
-
-
-        return Response({
-
-            "id":
-                attendance.id,
-
-            "teacher":
-                attendance.teacher.id,
-
-            "status":
-                attendance.status,
-
-        })
-
-
-# ============================================================
-# AVAILABLE VOLUNTEERS
-# ============================================================
-
-class AvailableVolunteerView(APIView):
-
-    def get(self, request):
-
-        selected_date = request.query_params.get(
-            "date"
-        )
-
-        if not selected_date:
-            selected_date = date.today().isoformat()
-
-
-        already_added = (
-            VolunteerDailyAttendance.objects
-            .filter(
-                date=selected_date
-            )
-            .values_list(
-                "volunteer_id",
-                flat=True
-            )
-        )
-
-
-        volunteers = (
-            Volunteer.objects
-            .filter(
-                is_active=True
-            )
-            .exclude(
-                id__in=already_added
-            )
-            .order_by("name")
-        )
-
-
-        return Response([
-
-            {
-                "id":
-                    volunteer.id,
-
-                "name":
-                    volunteer.name,
-
-                "phone":
-                    volunteer.phone,
-
-                "email":
-                    volunteer.email,
-
-            }
-
-            for volunteer in volunteers
-
-        ])
-
-
-# ============================================================
-# ADD VOLUNTEER FOR TODAY
-# ============================================================
-
-class VolunteerAttendanceAddView(APIView):
-
-    def post(self, request):
 
         volunteer_id = request.data.get(
             "volunteer"
         )
 
-        attendance_date = request.data.get(
-            "date"
+        task = request.data.get(
+            "task"
         )
 
+        # ----------------------------------------------------
+        # Validate volunteer ID
+        # ----------------------------------------------------
 
         if not volunteer_id:
+
             return Response(
                 {
-                    "error":
-                        "Volunteer is required."
+                    "error": (
+                        "volunteer is required."
+                    )
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ----------------------------------------------------
+        # Validate task
+        # ----------------------------------------------------
 
-        if not attendance_date:
-            attendance_date = date.today().isoformat()
+        if task not in [
+            "TEACHING",
+            "CHECKING",
+        ]:
 
+            return Response(
+                {
+                    "error": (
+                        "task must be TEACHING or CHECKING."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        volunteer = get_object_or_404(
-            Volunteer,
-            id=volunteer_id,
-            is_active=True
+        # ----------------------------------------------------
+        # Get volunteer
+        # ----------------------------------------------------
+
+        try:
+
+            volunteer = Teacher.objects.get(
+                id=volunteer_id
+            )
+
+        except Teacher.DoesNotExist:
+
+            return Response(
+                {
+                    "error": "Volunteer not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ====================================================
+        # IMPORTANT REMOVED-VOLUNTEER PROTECTION
+        # ====================================================
+
+        account_status = (
+            VolunteerAccountStatus.objects
+            .filter(
+                volunteer=volunteer
+            )
+            .first()
         )
 
+        if (
+            account_status
+            and account_status.status == "REMOVED"
+        ):
+
+            return Response(
+                {
+                    "error": (
+                        "This volunteer has been removed "
+                        "by Admin 2 and cannot be added "
+                        "to attendance."
+                    ),
+                    "code": "VOLUNTEER_REMOVED",
+                    "message": (
+                        "The volunteer must receive "
+                        "Admin 2 permission before "
+                        "access can be restored."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # ====================================================
+        # SPECIAL ADDED ATTENDANCE
+        # ====================================================
 
         attendance, created = (
-            VolunteerDailyAttendance.objects
-            .get_or_create(
-
+            VolunteerAttendance.objects.get_or_create(
+                session=session,
                 volunteer=volunteer,
-
-                date=attendance_date,
-
                 defaults={
-                    "status":
-                        "PRESENT"
-                }
-
+                    "task": task,
+                    "status": "ABSENT",
+                    "attendance_source": "SPECIAL_ADDED",
+                },
             )
         )
 
+        # ----------------------------------------------------
+        # Prevent duplicate volunteer
+        # ----------------------------------------------------
 
         if not created:
 
             return Response(
                 {
-                    "error":
-                        "Volunteer is already added for this date."
+                    "error": (
+                        "Volunteer already exists "
+                        "in this session."
+                    )
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-
-        return Response({
-
-            "id":
-                attendance.id,
-
-            "volunteer":
-                volunteer.id,
-
-            "name":
-                volunteer.name,
-
-            "status":
-                attendance.status,
-
-        }, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "message": "Volunteer added.",
+                "attendance": (
+                    VolunteerAttendanceSerializer(
+                        attendance
+                    ).data
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ============================================================
-# VOLUNTEER ATTENDANCE STATUS
+# SAVE VOLUNTEER ATTENDANCE
 # ============================================================
 
-class VolunteerAttendanceSaveView(APIView):
+class SaveVolunteerAttendanceView(APIView):
 
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    @transaction.atomic
     def post(self, request):
 
-        attendance_id = request.data.get(
-            "id"
+        session = get_active_session()
+
+        if not session:
+
+            return Response(
+                {
+                    "error": (
+                        "Attendance session is inactive "
+                        "or has expired."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        volunteer_id = request.data.get(
+            "volunteer"
         )
 
         attendance_status = request.data.get(
             "status"
         )
 
+        task = request.data.get(
+            "task"
+        )
+
+        # ----------------------------------------------------
+        # Validate volunteer
+        # ----------------------------------------------------
+
+        if not volunteer_id:
+
+            return Response(
+                {
+                    "error": (
+                        "volunteer is required."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ----------------------------------------------------
+        # Validate status
+        # ----------------------------------------------------
 
         if attendance_status not in [
             "PRESENT",
@@ -504,198 +873,202 @@ class VolunteerAttendanceSaveView(APIView):
 
             return Response(
                 {
-                    "error":
-                        "Invalid attendance status."
+                    "error": (
+                        "status must be PRESENT or ABSENT."
+                    )
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ----------------------------------------------------
+        # Validate task
+        # ----------------------------------------------------
 
-        attendance = get_object_or_404(
-            VolunteerDailyAttendance,
-            id=attendance_id
-        )
-
-
-        attendance.status = attendance_status
-
-        attendance.save()
-
-
-        return Response({
-
-            "id":
-                attendance.id,
-
-            "status":
-                attendance.status,
-
-        })
-
-
-# ============================================================
-# DELETE VOLUNTEER FROM DAILY LIST
-# ============================================================
-
-class VolunteerAttendanceDeleteView(APIView):
-
-    def delete(self, request, attendance_id):
-
-        attendance = get_object_or_404(
-            VolunteerDailyAttendance,
-            id=attendance_id
-        )
-
-        attendance.delete()
-
-        return Response(
-            status=status.HTTP_204_NO_CONTENT
-        )
-
-
-# ============================================================
-# UPLOAD ATTENDANCE PHOTO
-# ============================================================
-
-class AttendancePhotoUploadView(APIView):
-
-    def post(
-        self,
-        request
-    ):
-
-        uploaded_photo = request.FILES.get(
-            "photo"
-        )
-
-        photo_type = request.data.get(
-            "photo_type"
-        )
-
-        attendance_date = request.data.get(
-            "date"
-        )
-
-
-        if not uploaded_photo:
-
-            return Response(
-                {
-                    "error":
-                        "Photo is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-
-        if photo_type not in [
-            "STUDENT",
-            "VOLUNTEER",
+        if task not in [
+            "TEACHING",
+            "CHECKING",
         ]:
 
             return Response(
                 {
-                    "error":
-                        "Invalid photo type."
+                    "error": (
+                        "task must be TEACHING or CHECKING."
+                    )
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ----------------------------------------------------
+        # Find existing attendance
+        # ----------------------------------------------------
 
-        if not attendance_date:
+        try:
 
-            attendance_date = date.today()
+            attendance = (
+                VolunteerAttendance.objects.get(
+                    session=session,
+                    volunteer_id=volunteer_id,
+                )
+            )
 
-
-        if not uploaded_photo.content_type.startswith(
-            "image/"
-        ):
+        except VolunteerAttendance.DoesNotExist:
 
             return Response(
                 {
-                    "error":
-                        "Only image files are allowed."
+                    "error": (
+                        "Volunteer has not been added "
+                        "to this session."
+                    )
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_404_NOT_FOUND,
             )
 
+        # ----------------------------------------------------
+        # Update attendance
+        # ----------------------------------------------------
 
-        if uploaded_photo.size > (
-            10 * 1024 * 1024
-        ):
+        attendance.task = task
+        attendance.status = attendance_status
 
-            return Response(
-                {
-                    "error":
-                        "Photo must be smaller than 10 MB."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # ----------------------------------------------------
+        # DO NOT change attendance_source.
+        #
+        # ASSIGNED stays ASSIGNED.
+        # SPECIAL_ADDED stays SPECIAL_ADDED.
+        #
+        # This is required for correct XP calculation.
+        # ----------------------------------------------------
 
+        attendance.save()
 
-        photo = AttendancePhoto.objects.create(
-
-            photo=uploaded_photo,
-
-            photo_type=photo_type,
-
-            date=attendance_date,
-        )
-
-
-        serializer = AttendancePhotoSerializer(
-            photo,
-            context={
-                "request": request
+        return Response(
+            {
+                "message": (
+                    "Volunteer attendance saved."
+                ),
+                "attendance": (
+                    VolunteerAttendanceSerializer(
+                        attendance
+                    ).data
+                ),
             }
         )
 
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_201_CREATED
+# ============================================================
+# TODAY ATTENDANCE SUMMARY
+# ============================================================
+
+class TodayAttendanceSummaryView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    def get(self, request):
+
+        today = timezone.localdate()
+
+        sessions = (
+            AttendanceSession.objects
+            .filter(
+                admin=request.user,
+                session_date=today,
+            )
+            .order_by(
+                "-started_at"
+            )
         )
 
+        session = sessions.first()
 
-class AttendancePhotoDeleteView(APIView):
-
-    def delete(
-        self,
-        request,
-        photo_id
-    ):
-
-        try:
-
-            photo = AttendancePhoto.objects.get(
-                id=photo_id
-            )
-
-        except AttendancePhoto.DoesNotExist:
+        if not session:
 
             return Response(
                 {
-                    "error":
-                        "Photo not found."
-                },
-                status=status.HTTP_404_NOT_FOUND
+                    "date": today,
+                    "session": None,
+                    "students": [],
+                    "volunteers": [],
+                }
             )
 
-
-        if photo.photo:
-
-            photo.photo.delete(
-                save=False
+        students = (
+            StudentAttendance.objects
+            .filter(
+                session=session
             )
+            .select_related(
+                "student"
+            )
+        )
 
-
-        photo.delete()
-
+        volunteers = (
+            VolunteerAttendance.objects
+            .filter(
+                session=session
+            )
+            .select_related(
+                "volunteer"
+            )
+        )
 
         return Response(
             {
-                "message":
-                    "Photo deleted successfully."
-            },
-            status=status.HTTP_200_OK
+                "date": today,
+                "session": (
+                    AttendanceSessionSerializer(
+                        session
+                    ).data
+                ),
+                "students": (
+                    StudentAttendanceSerializer(
+                        students,
+                        many=True,
+                    ).data
+                ),
+                "volunteers": (
+                    VolunteerAttendanceSerializer(
+                        volunteers,
+                        many=True,
+                    ).data
+                ),
+            }
+        )
+
+
+# ============================================================
+# ATTENDANCE HISTORY
+# ============================================================
+
+class AttendanceHistoryView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    def get(self, request):
+
+        sessions = (
+            AttendanceSession.objects
+            .filter(
+                admin=request.user
+            )
+            .order_by(
+                "-session_date",
+                "-started_at",
+            )
+        )
+
+        return Response(
+            {
+                "sessions": (
+                    AttendanceSessionSerializer(
+                        sessions,
+                        many=True,
+                    ).data
+                ),
+            }
         )

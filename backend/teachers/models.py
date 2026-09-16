@@ -24,22 +24,22 @@ class Teacher(models.Model):
         ("Thursday", "Thursday"),
         ("Friday", "Friday"),
         ("Saturday", "Saturday"),
-        ("Sunday", "Sunday"),
     ]
 
     # Django authentication account
     auth_user = models.OneToOneField(
-    User,
-    on_delete=models.CASCADE,
-    related_name="teacher_profile",
-    null=True,
-    blank=True,
-)
+        User,
+        on_delete=models.CASCADE,
+        related_name="teacher_profile",
+        null=True,
+        blank=True,
+    )
 
+    # Automatically generated Teacher ID
     user_id = models.CharField(
         max_length=20,
         unique=True,
-        editable=False
+        editable=False,
     )
 
     name = models.CharField(
@@ -49,7 +49,7 @@ class Teacher(models.Model):
     course = models.ForeignKey(
         Course,
         on_delete=models.PROTECT,
-        related_name="teachers"
+        related_name="teachers",
     )
 
     joining_year = models.PositiveIntegerField()
@@ -57,7 +57,7 @@ class Teacher(models.Model):
     subject = models.ForeignKey(
         Subject,
         on_delete=models.PROTECT,
-        related_name="teachers"
+        related_name="teachers",
     )
 
     email = models.EmailField(
@@ -72,8 +72,10 @@ class Teacher(models.Model):
         default=list
     )
 
-    # Kept temporarily for compatibility with the existing
-    # registered teacher. New authentication will use Django User.
+    # Kept temporarily for compatibility with
+    # the existing Teacher records.
+    #
+    # New authentication uses Django's User model.
     password = models.CharField(
         max_length=128
     )

@@ -19,6 +19,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import include, path
 
+
 urlpatterns = [
     path("admin/", admin.site.urls),
 
@@ -31,20 +32,27 @@ urlpatterns = [
         "api/teachers/",
         include("teachers.urls")
     ),
-    
+
     path(
-    "api/students/",
-    include("students.urls")
+        "api/students/",
+        include("students.urls")
     ),
-    
-     path(
+
+    path(
         "api/attendance/",
         include("attendance.urls")
     ),
+
+    path(
+        "api/auth/",
+        include("accounts.urls")
+    ),
+    
+    path("api/admin2/", include("admin2.urls")),
 ]
 
-if settings.DEBUG:
 
+if settings.DEBUG:
     urlpatterns += static(
         settings.MEDIA_URL,
         document_root=settings.MEDIA_ROOT

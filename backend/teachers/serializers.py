@@ -1,10 +1,13 @@
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
 from django.db import transaction
+
 from rest_framework import serializers
 
 from .models import Teacher
 from .utils import generate_teacher_user_id
+
+from accounts.utils import ensure_teacher_volunteer_profile
 
 
 class TeacherRegistrationSerializer(serializers.ModelSerializer):
@@ -111,7 +114,6 @@ class TeacherRegistrationSerializer(serializers.ModelSerializer):
             "Thursday",
             "Friday",
             "Saturday",
-            "Sunday",
         }
 
         invalid_days = set(value) - valid_days
@@ -153,13 +155,20 @@ class TeacherRegistrationSerializer(serializers.ModelSerializer):
         subject = validated_data["subject"]
         email = validated_data["email"]
 
-        # Generate the unique teacher ID
+        # Generate the unique teacher ID.
+        #
+        # Example:
+        # Dibyaranjan Sahu + Mathematics
+        # -> SAHM001
         user_id = generate_teacher_user_id(
             name,
             subject
         )
 
-        # Create Django authentication account
+        # Create Django authentication account.
+        #
+        # We keep email as the username so the existing
+        # teacher login system continues to work.
         auth_user = User.objects.create_user(
             username=email,
             email=email,
@@ -167,16 +176,26 @@ class TeacherRegistrationSerializer(serializers.ModelSerializer):
             first_name=name,
         )
 
-        # Store teacher profile
+        # Connect the Django authentication account
+        # with the Teacher profile.
+        validated_data["auth_user"] = auth_user
+
+        # Store generated Teacher ID.
         validated_data["user_id"] = user_id
 
-        # Keep the hashed password temporarily for
-        # compatibility with the existing Teacher model.
+        # Keep the hashed password in the existing
+        # Teacher model for backward compatibility.
         validated_data["password"] = make_password(
             password
         )
 
-        validated_data["user"] = auth_user
+        # Create the Teacher / Volunteer role profile.
+        #
+        # Teacher and Volunteer are the SAME account role
+        # in Jaago Portal.
+        ensure_teacher_volunteer_profile(
+            auth_user
+        )
 
         return Teacher.objects.create(
             **validated_data

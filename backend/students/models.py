@@ -13,7 +13,6 @@ class StudentRegistrationSequence(models.Model):
 
 
 class Student(models.Model):
-
     CLASS_CHOICES = [
         ("LKG", "LKG"),
         ("UKG", "UKG"),
@@ -32,25 +31,19 @@ class Student(models.Model):
     roll_no = models.CharField(
         max_length=20,
         unique=True,
-        editable=False
+        editable=False,
     )
 
-    name = models.CharField(
-        max_length=150
-    )
+    name = models.CharField(max_length=150)
 
     student_class = models.CharField(
         max_length=3,
-        choices=CLASS_CHOICES
+        choices=CLASS_CHOICES,
     )
 
-    school_name = models.CharField(
-        max_length=200
-    )
+    school_name = models.CharField(max_length=200)
 
-    created_at = models.DateTimeField(
-        auto_now_add=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.roll_no} - {self.name}"

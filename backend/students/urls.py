@@ -7,6 +7,6 @@ urlpatterns = [
     path(
         "register/",
         StudentRegistrationView.as_view(),
-        name="student-register"
+        name="student-register",
     ),
 ]
