@@ -6,17 +6,76 @@ from django.utils import timezone
 from teachers.models import Teacher
 
 
+class DailySchoolStatus(models.Model):
+    STATUS_CHOICES = [
+        ("HOLIDAY", "No Class / Holiday"),
+        ("PLAYING_DAY", "Playing Day"),
+        ("REGULAR_CLASS", "Regular Class"),
+    ]
+
+    EMAIL_STATUS_CHOICES = [
+        ("NOT_SENT", "Not Sent"),
+        ("SENT", "Sent"),
+        ("FAILED", "Failed"),
+    ]
+
+    date = models.DateField(
+        unique=True,
+        default=timezone.localdate,
+        db_index=True,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="REGULAR_CLASS",
+    )
+
+    playing_day_email_status = models.CharField(
+        max_length=20,
+        choices=EMAIL_STATUS_CHOICES,
+        default="NOT_SENT",
+    )
+
+    playing_day_email_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    playing_day_email_error = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_daily_school_statuses",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date"]
+
+    def __str__(self):
+        return f"{self.date} - {self.get_status_display()}"
+
+
 class VolunteerAssignment(models.Model):
     CLASS_CHOICES = [
         ("ClassA", "Class A"),
         ("ClassB", "Class B"),
         ("ClassC", "Class C"),
         ("ClassD", "Class D"),
+        ("ClassE", "Class E"),
     ]
 
     TASK_CHOICES = [
         ("TEACHING", "Teaching"),
         ("CHECKING", "Checking"),
+        ("INVIGILATOR", "Invigilator"),
     ]
 
     EMAIL_STATUS_CHOICES = [
@@ -53,6 +112,12 @@ class VolunteerAssignment(models.Model):
 
     attachment = models.FileField(
         upload_to="admin2/assignments/%Y/%m/%d/",
+        blank=True,
+        null=True,
+    )
+
+    homework_attachment = models.FileField(
+        upload_to="admin2/homework/%Y/%m/%d/",
         blank=True,
         null=True,
     )

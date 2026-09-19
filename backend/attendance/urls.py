@@ -4,98 +4,73 @@ from .views import (
     StartAttendanceSessionView,
     CurrentAttendanceSessionView,
     EndAttendanceSessionView,
-
     StudentAttendanceListView,
     SaveStudentAttendanceView,
-
     VolunteerListView,
     CurrentVolunteerAttendanceView,
     AddVolunteerAttendanceView,
+    AddPlayingDayAttendanceView,
     SaveVolunteerAttendanceView,
-
     TodayAttendanceSummaryView,
     AttendanceHistoryView,
 )
 
-
 urlpatterns = [
-
-    # ========================================================
-    # ATTENDANCE SESSION
-    # ========================================================
-
     path(
         "session/start/",
         StartAttendanceSessionView.as_view(),
-        name="attendance-session-start",
+        name="start-attendance-session",
     ),
-
     path(
         "session/current/",
         CurrentAttendanceSessionView.as_view(),
-        name="attendance-session-current",
+        name="current-attendance-session",
     ),
-
     path(
         "session/end/",
         EndAttendanceSessionView.as_view(),
-        name="attendance-session-end",
+        name="end-attendance-session",
     ),
-
-    # ========================================================
-    # STUDENT ATTENDANCE
-    # ========================================================
-
     path(
         "students/",
         StudentAttendanceListView.as_view(),
         name="student-attendance-list",
     ),
-
     path(
         "students/save/",
         SaveStudentAttendanceView.as_view(),
-        name="student-attendance-save",
+        name="save-student-attendance",
     ),
-
-    # ========================================================
-    # VOLUNTEERS
-    # ========================================================
-
     path(
         "volunteers/",
         VolunteerListView.as_view(),
         name="volunteer-list",
     ),
-
     path(
         "volunteers/current/",
         CurrentVolunteerAttendanceView.as_view(),
         name="current-volunteer-attendance",
     ),
-
     path(
         "volunteers/add/",
         AddVolunteerAttendanceView.as_view(),
         name="add-volunteer-attendance",
     ),
-
+    path(
+        "volunteers/add-playing-day/",
+        AddPlayingDayAttendanceView.as_view(),
+        name="add-playing-day-attendance",
+    ),
     path(
         "volunteers/save/",
         SaveVolunteerAttendanceView.as_view(),
         name="save-volunteer-attendance",
     ),
-
-    # ========================================================
-    # SUMMARY / HISTORY
-    # ========================================================
-
     path(
-        "today/",
+        "summary/",
         TodayAttendanceSummaryView.as_view(),
         name="today-attendance-summary",
     ),
-
     path(
         "history/",
         AttendanceHistoryView.as_view(),

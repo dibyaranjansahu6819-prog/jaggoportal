@@ -776,6 +776,70 @@ class AttendanceBackendTests(TestCase):
         )
 
     # =========================================================
+    # ACCESS WORK SUBSTITUTE / PLAYING DAY
+    # =========================================================
+
+    def test_playing_day_requires_playing_day_status(self):
+        self.client.post(
+            "/api/attendance/session/start/"
+        )
+
+        response = self.client.post(
+            "/api/attendance/volunteers/add-playing-day/",
+            {
+                "volunteer": self.volunteer.id,
+                "task": "TEACHING",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400,
+        )
+
+    def test_playing_day_volunteer_can_be_added(self):
+        from admin2.models import DailySchoolStatus
+
+        DailySchoolStatus.objects.create(
+            date=timezone.localdate(),
+            status="PLAYING_DAY",
+            created_by=self.admin1_user,
+        )
+
+        self.client.post(
+            "/api/attendance/session/start/"
+        )
+
+        response = self.client.post(
+            "/api/attendance/volunteers/add-playing-day/",
+            {
+                "volunteer": self.volunteer.id,
+                "task": "TEACHING",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            201,
+        )
+
+        attendance = VolunteerAttendance.objects.get(
+            volunteer=self.volunteer
+        )
+
+        self.assertEqual(
+            attendance.attendance_source,
+            "PLAYING_DAY",
+        )
+
+        self.assertEqual(
+            attendance.status,
+            "ABSENT",
+        )
+
+    # =========================================================
     # VOLUNTEER LIST
     # =========================================================
 
@@ -816,7 +880,7 @@ class AttendanceBackendTests(TestCase):
         )
 
         response = self.client.get(
-            "/api/attendance/today/"
+            "/api/attendance/summary/"
         )
 
         self.assertEqual(

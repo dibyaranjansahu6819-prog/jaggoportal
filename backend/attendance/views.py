@@ -12,6 +12,7 @@ from accounts.permissions import IsAdmin1
 from students.models import Student
 from teachers.models import Teacher
 from admin2.models import (
+    DailySchoolStatus,
     VolunteerAccountStatus,
     VolunteerAssignment,
 )
@@ -20,6 +21,7 @@ from .models import (
     AttendanceSession,
     StudentAttendance,
     VolunteerAttendance,
+    Holiday,
 )
 
 from .serializers import (
@@ -27,6 +29,30 @@ from .serializers import (
     StudentAttendanceSerializer,
     VolunteerAttendanceSerializer,
 )
+
+
+# ============================================================
+# HOLIDAY CHECK
+# ============================================================
+
+def is_today_holiday():
+    """Return the active Holiday record for today, if one exists."""
+    return (
+        Holiday.objects
+        .filter(date=timezone.localdate(), is_active=True)
+        .first()
+    )
+
+
+def holiday_response(holiday):
+    return Response(
+        {
+            "error": "Today is a holiday. Attendance cannot be taken.",
+            "code": "HOLIDAY",
+            "holiday": {"date": holiday.date, "name": holiday.name},
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 # ============================================================
@@ -145,6 +171,10 @@ class StartAttendanceSessionView(APIView):
     @transaction.atomic
     def post(self, request):
 
+        holiday = is_today_holiday()
+        if holiday:
+            return holiday_response(holiday)
+
         session = get_active_session()
 
         # ----------------------------------------------------
@@ -201,6 +231,10 @@ class CurrentAttendanceSessionView(APIView):
 
     def get(self, request):
 
+        holiday = is_today_holiday()
+        if holiday:
+            return Response({"session": None, "message": "Today is a holiday. Attendance is unavailable.", "code": "HOLIDAY", "holiday": {"date": holiday.date, "name": holiday.name}})
+
         session = get_active_session()
 
         if not session:
@@ -235,6 +269,10 @@ class EndAttendanceSessionView(APIView):
     ]
 
     def post(self, request):
+
+        holiday = is_today_holiday()
+        if holiday:
+            return holiday_response(holiday)
 
         session = get_active_session()
 
@@ -283,6 +321,10 @@ class StudentAttendanceListView(APIView):
     ]
 
     def get(self, request):
+
+        holiday = is_today_holiday()
+        if holiday:
+            return Response({"session": None, "date": holiday.date, "students": [], "holiday": {"date": holiday.date, "name": holiday.name}})
 
         session = get_active_session()
 
@@ -355,6 +397,10 @@ class SaveStudentAttendanceView(APIView):
 
     @transaction.atomic
     def post(self, request):
+
+        holiday = is_today_holiday()
+        if holiday:
+            return holiday_response(holiday)
 
         session = get_active_session()
 
@@ -472,6 +518,10 @@ class VolunteerListView(APIView):
 
     def get(self, request):
 
+        holiday = is_today_holiday()
+        if holiday:
+            return Response({"volunteers": [], "date": holiday.date, "holiday": {"date": holiday.date, "name": holiday.name}})
+
         # ----------------------------------------------------
         # Only volunteers who are not REMOVED are available
         # for Admin 1's "+ Add Volunteer" list.
@@ -546,6 +596,10 @@ class CurrentVolunteerAttendanceView(APIView):
     @transaction.atomic
     def get(self, request):
 
+        holiday = is_today_holiday()
+        if holiday:
+            return Response({"session": None, "date": holiday.date, "volunteers": [], "holiday": {"date": holiday.date, "name": holiday.name}})
+
         session = get_active_session()
 
         if not session:
@@ -558,56 +612,102 @@ class CurrentVolunteerAttendanceView(APIView):
             )
 
         # ----------------------------------------------------
-        # Get today's Admin 2 assignments.
+        # PLAYING DAY
+        # ----------------------------------------------------
         #
-        # Only successfully sent assignments count.
+        # On a Playing Day, Admin 1 does NOT add volunteers
+        # individually.
+        #
+        # Every active registered volunteer is automatically
+        # placed into the attendance list.
+        #
+        # Removed volunteers are excluded.
+        #
+        # Playing Day attendance uses the PLAYING_DAY source.
+        # PRESENT = +10 XP
+        # ABSENT  = 0 XP
         # ----------------------------------------------------
 
-        assignment_tasks = (
-            get_today_assigned_volunteer_tasks()
+        today_status = (
+            DailySchoolStatus.objects
+            .filter(date=timezone.localdate())
+            .first()
         )
 
-        # ----------------------------------------------------
-        # Automatically create attendance records for
-        # assigned volunteers.
-        #
-        # Admin 2 Teaching -> TEACHING
-        # Admin 2 Checking -> CHECKING
-        #
-        # ASSIGNED source is preserved.
-        # ----------------------------------------------------
+        if today_status and today_status.status == "PLAYING_DAY":
 
-        for volunteer_id, assigned_task in (
-            assignment_tasks.items()
-        ):
-
-            # -----------------------------------------------
-            # Do not create attendance for removed volunteers.
-            # -----------------------------------------------
-
-            account_status = (
+            removed_ids = set(
                 VolunteerAccountStatus.objects
-                .filter(
-                    volunteer_id=volunteer_id
+                .filter(status="REMOVED")
+                .values_list("volunteer_id", flat=True)
+            )
+
+            active_volunteers = (
+                Teacher.objects
+                .exclude(id__in=removed_ids)
+                .order_by("name")
+            )
+
+            for volunteer in active_volunteers:
+                VolunteerAttendance.objects.get_or_create(
+                    session=session,
+                    volunteer=volunteer,
+                    defaults={
+                        # The task field is required by the existing
+                        # attendance model. Playing Day does not use
+                        # the task for XP calculation.
+                        "task": "TEACHING",
+                        "status": "ABSENT",
+                        "attendance_source": "PLAYING_DAY",
+                    },
                 )
-                .first()
+
+        else:
+
+            # ------------------------------------------------
+            # NORMAL DAY
+            # ------------------------------------------------
+            #
+            # On a regular school day, only successfully sent
+            # Admin 2 assignments create ASSIGNED attendance.
+            # ------------------------------------------------
+
+            assignment_tasks = (
+                get_today_assigned_volunteer_tasks()
             )
 
-            if (
-                account_status
-                and account_status.status == "REMOVED"
+            for volunteer_id, assigned_task in (
+                assignment_tasks.items()
             ):
-                continue
 
-            VolunteerAttendance.objects.get_or_create(
-                session=session,
-                volunteer_id=volunteer_id,
-                defaults={
-                    "task": assigned_task,
-                    "status": "ABSENT",
-                    "attendance_source": "ASSIGNED",
-                },
-            )
+                # -------------------------------------------
+                # Do not create attendance for removed
+                # volunteers.
+                # -------------------------------------------
+
+                account_status = (
+                    VolunteerAccountStatus.objects
+                    .filter(
+                        volunteer_id=volunteer_id
+                    )
+                    .first()
+                )
+
+                if (
+                    account_status
+                    and account_status.status == "REMOVED"
+                ):
+                    continue
+
+                VolunteerAttendance.objects.get_or_create(
+                    session=session,
+                    volunteer_id=volunteer_id,
+                    defaults={
+                        "task": assigned_task,
+                        "status": "ABSENT",
+                        "attendance_source": "ASSIGNED",
+                    },
+                )
 
         # ----------------------------------------------------
         # Get all attendance records for this session.
@@ -653,6 +753,10 @@ class AddVolunteerAttendanceView(APIView):
 
     @transaction.atomic
     def post(self, request):
+
+        holiday = is_today_holiday()
+        if holiday:
+            return holiday_response(holiday)
 
         session = get_active_session()
 
@@ -808,6 +912,154 @@ class AddVolunteerAttendanceView(APIView):
 
 
 # ============================================================
+# PLAYING DAY ATTENDANCE
+# ============================================================
+
+VOLUNTEER_TASKS = [
+    "TEACHING",
+    "CHECKING",
+    "INVIGILATOR",
+]
+
+
+class AddPlayingDayAttendanceView(APIView):
+    """
+    Legacy endpoint retained for backward compatibility.
+
+    The normal Playing Day attendance flow does NOT use this
+    endpoint. CurrentVolunteerAttendanceView automatically
+    creates attendance for every active registered volunteer.
+    """
+
+    permission_classes = [
+        IsAuthenticated,
+        IsAdmin1,
+    ]
+
+    @transaction.atomic
+    def post(self, request):
+
+        holiday = is_today_holiday()
+        if holiday:
+            return holiday_response(holiday)
+
+        session = get_active_session()
+
+        if not session:
+            return Response(
+                {
+                    "error": (
+                        "Attendance session is inactive "
+                        "or has expired."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        today_status = (
+            DailySchoolStatus.objects
+            .filter(date=timezone.localdate())
+            .first()
+        )
+
+        if not today_status or today_status.status != "PLAYING_DAY":
+            return Response(
+                {
+                    "error": (
+                        "Playing Day attendance can only "
+                        "be added when today's school "
+                        "status is PLAYING_DAY."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        volunteer_id = request.data.get("volunteer")
+        task = request.data.get("task")
+
+        if not volunteer_id:
+            return Response(
+                {"error": "volunteer is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if task not in VOLUNTEER_TASKS:
+            return Response(
+                {
+                    "error": (
+                        "task must be TEACHING, CHECKING, "
+                        "or INVIGILATOR."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            volunteer = Teacher.objects.get(id=volunteer_id)
+        except Teacher.DoesNotExist:
+            return Response(
+                {"error": "Volunteer not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        account_status = (
+            VolunteerAccountStatus.objects
+            .filter(volunteer=volunteer)
+            .first()
+        )
+
+        if account_status and account_status.status == "REMOVED":
+            return Response(
+                {
+                    "error": (
+                        "This volunteer has been removed "
+                        "by Admin 2 and cannot be added "
+                        "to attendance."
+                    ),
+                    "code": "VOLUNTEER_REMOVED",
+                    "message": (
+                        "The volunteer must receive "
+                        "Admin 2 permission before "
+                        "access can be restored."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        attendance, created = (
+            VolunteerAttendance.objects.get_or_create(
+                session=session,
+                volunteer=volunteer,
+                defaults={
+                    "task": task,
+                    "status": "ABSENT",
+                    "attendance_source": "PLAYING_DAY",
+                },
+            )
+        )
+
+        if not created:
+            return Response(
+                {
+                    "error": (
+                        "Volunteer already exists "
+                        "in this session."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "message": "Volunteer added with PLAYING_DAY source.",
+                "attendance": VolunteerAttendanceSerializer(
+                    attendance
+                ).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+# ============================================================
 # SAVE VOLUNTEER ATTENDANCE
 # ============================================================
 
@@ -820,6 +1072,10 @@ class SaveVolunteerAttendanceView(APIView):
 
     @transaction.atomic
     def post(self, request):
+
+        holiday = is_today_holiday()
+        if holiday:
+            return holiday_response(holiday)
 
         session = get_active_session()
 
@@ -969,6 +1225,9 @@ class TodayAttendanceSummaryView(APIView):
     def get(self, request):
 
         today = timezone.localdate()
+        holiday = is_today_holiday()
+        if holiday:
+            return Response({"date": today, "session": None, "students": [], "volunteers": [], "holiday": {"date": holiday.date, "name": holiday.name}})
 
         sessions = (
             AttendanceSession.objects

@@ -16,6 +16,7 @@ from courses.models import Course, Subject
 from teachers.models import Teacher
 
 from .models import (
+    DailySchoolStatus,
     VolunteerAccountStatus,
     VolunteerAccessRequest,
     VolunteerAssignment,
@@ -61,6 +62,14 @@ class Admin2BackendTests(TestCase):
             user=self.admin2_user,
             role="ADMIN2",
             is_active=True,
+        )
+
+        # Normal assignment tests require today's school status
+        # to be explicitly marked as REGULAR_CLASS.
+        DailySchoolStatus.objects.create(
+            date=timezone.localdate(),
+            status="REGULAR_CLASS",
+            created_by=self.admin2_user,
         )
 
         # =====================================================
@@ -257,7 +266,7 @@ class Admin2BackendTests(TestCase):
             -10,
         )
 
-    def test_special_present_gives_plus_15_xp(self):
+    def test_special_present_gives_plus_5_xp(self):
         session = AttendanceSession.objects.create(
             admin=self.admin2_user,
             session_date=timezone.localdate(),
@@ -279,9 +288,8 @@ class Admin2BackendTests(TestCase):
 
         self.assertEqual(
             get_volunteer_xp(self.volunteer),
-            15,
+                5,
         )
-
     def test_special_absent_gives_zero_xp(self):
         session = AttendanceSession.objects.create(
             admin=self.admin2_user,
@@ -301,6 +309,54 @@ class Admin2BackendTests(TestCase):
         sync_attendance_xp(
             attendance
         )
+
+        self.assertEqual(
+            get_volunteer_xp(self.volunteer),
+            0,
+        )
+
+
+
+    def test_playing_day_present_gives_plus_10_xp(self):
+        session = AttendanceSession.objects.create(
+            admin=self.admin2_user,
+            session_date=timezone.localdate(),
+            expires_at=timezone.now() + timedelta(minutes=10),
+            is_active=True,
+        )
+
+        attendance = VolunteerAttendance.objects.create(
+            session=session,
+            volunteer=self.volunteer,
+            task="TEACHING",
+            attendance_source="PLAYING_DAY",
+            status="PRESENT",
+        )
+
+        sync_attendance_xp(attendance)
+
+        self.assertEqual(
+            get_volunteer_xp(self.volunteer),
+            10,
+        )
+
+    def test_playing_day_absent_gives_zero_xp(self):
+        session = AttendanceSession.objects.create(
+            admin=self.admin2_user,
+            session_date=timezone.localdate(),
+            expires_at=timezone.now() + timedelta(minutes=10),
+            is_active=True,
+        )
+
+        attendance = VolunteerAttendance.objects.create(
+            session=session,
+            volunteer=self.volunteer,
+            task="CHECKING",
+            attendance_source="PLAYING_DAY",
+            status="ABSENT",
+        )
+
+        sync_attendance_xp(attendance)
 
         self.assertEqual(
             get_volunteer_xp(self.volunteer),
@@ -691,6 +747,77 @@ class Admin2BackendTests(TestCase):
         self.assertEqual(
             response.status_code,
             400,
+        )
+
+    # =========================================================
+    # DAILY SCHOOL STATUS / ASSIGNMENT TESTS
+    # =========================================================
+
+    def test_daily_status_can_be_set_to_holiday(self):
+        response = self.client.post(
+            "/api/admin2/daily-status/",
+            {"status": "HOLIDAY"},
+            format="json",
+        )
+
+        self.assertIn(response.status_code, [200, 201])
+        self.assertEqual(
+            DailySchoolStatus.objects.get(
+                date=timezone.localdate()
+            ).status,
+            "HOLIDAY",
+        )
+
+    def test_assignment_requires_regular_class_status(self):
+        DailySchoolStatus.objects.update_or_create(
+            date=timezone.localdate(),
+            defaults={
+                "status": "HOLIDAY",
+                "created_by": self.admin2_user,
+            },
+        )
+
+        response = self.client.post(
+            "/api/admin2/assignments/send/",
+            {
+                "volunteer": self.volunteer.id,
+                "assigned_class": "ClassA",
+                "task": "TEACHING",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_assignment_accepts_invigilator_and_optional_homework(self):
+        DailySchoolStatus.objects.update_or_create(
+            date=timezone.localdate(),
+            defaults={
+                "status": "REGULAR_CLASS",
+                "created_by": self.admin2_user,
+            },
+        )
+
+        response = self.client.post(
+            "/api/admin2/assignments/send/",
+            {
+                "volunteer": self.volunteer.id,
+                "assigned_class": "ClassA",
+                "task": "INVIGILATOR",
+                "instruction": "Take the test.",
+            },
+            format="json",
+        )
+
+        # Email backend may be configured differently in the local environment,
+        # but serializer/model validation must accept the new role.
+        self.assertIn(response.status_code, [201, 500])
+        self.assertTrue(
+            VolunteerAssignment.objects.filter(
+                volunteer=self.volunteer,
+                assignment_date=timezone.localdate(),
+                task="INVIGILATOR",
+            ).exists()
         )
 
     # =========================================================

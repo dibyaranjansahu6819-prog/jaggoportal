@@ -5,6 +5,7 @@ from students.models import Student
 from teachers.models import Teacher
 
 from .models import (
+    DailySchoolStatus,
     VolunteerAccountStatus,
     VolunteerAccessRequest,
     VolunteerAssignment,
@@ -12,6 +13,38 @@ from .models import (
     VolunteerXPTransaction,
 )
 from .services import get_volunteer_xp
+
+
+class DailySchoolStatusSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(
+        source="get_status_display",
+        read_only=True,
+    )
+
+    class Meta:
+        model = DailySchoolStatus
+        fields = [
+            "id",
+            "date",
+            "status",
+            "status_display",
+            "playing_day_email_status",
+            "playing_day_email_sent_at",
+            "playing_day_email_error",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "date",
+            "playing_day_email_status",
+            "playing_day_email_sent_at",
+            "playing_day_email_error",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class StudentSummarySerializer(serializers.ModelSerializer):
@@ -118,6 +151,7 @@ class VolunteerAssignmentSerializer(serializers.ModelSerializer):
             "task_display",
             "instruction",
             "attachment",
+            "homework_attachment",
             "sender_email",
             "email_status",
             "email_sent_at",
@@ -160,6 +194,11 @@ class SendAssignmentSerializer(serializers.Serializer):
     )
 
     attachment = serializers.FileField(
+        required=False,
+        allow_null=True,
+    )
+
+    homework_attachment = serializers.FileField(
         required=False,
         allow_null=True,
     )
@@ -238,6 +277,20 @@ class SendAssignmentSerializer(serializers.Serializer):
         # -----------------------------------------
         # 7. Prevent duplicate daily assignment
         # -----------------------------------------
+        daily_status = DailySchoolStatus.objects.filter(
+            date=today
+        ).first()
+
+        if not daily_status:
+            raise serializers.ValidationError(
+                "Please select Regular Class in today's school status before assigning a volunteer."
+            )
+
+        if daily_status.status != "REGULAR_CLASS":
+            raise serializers.ValidationError(
+                "Volunteer assignments are allowed only when today's status is Regular Class."
+            )
+
         if VolunteerAssignment.objects.filter(
             volunteer=volunteer,
             assignment_date=today,
@@ -290,6 +343,41 @@ class SendAssignmentSerializer(serializers.Serializer):
         if extension not in allowed:
             raise serializers.ValidationError(
                 "Unsupported attachment type."
+            )
+
+        return file
+
+    def validate_homework_attachment(self, file):
+        if not file:
+            return file
+
+        if file.size > 10 * 1024 * 1024:
+            raise serializers.ValidationError(
+                "Homework attachment must be 10 MB or smaller."
+            )
+
+        allowed = {
+            ".pdf",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".doc",
+            ".docx",
+            ".txt",
+            ".xls",
+            ".xlsx",
+        }
+
+        filename = file.name.lower()
+        if "." not in filename:
+            raise serializers.ValidationError(
+                "Invalid homework file extension."
+            )
+
+        extension = "." + filename.rsplit(".", 1)[1]
+        if extension not in allowed:
+            raise serializers.ValidationError(
+                "Unsupported homework attachment type."
             )
 
         return file

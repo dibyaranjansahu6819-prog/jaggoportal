@@ -5,6 +5,65 @@ from students.models import Student
 from teachers.models import Teacher
 
 
+class Holiday(models.Model):
+    """
+    School holiday managed by Admin 2.
+
+    A holiday is attached to a specific calendar date.
+    Attendance processing can use this model to determine
+    whether the school is closed on that date.
+    """
+
+    date = models.DateField(
+        unique=True,
+        db_index=True,
+    )
+
+    name = models.CharField(
+        max_length=150,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    created_by = models.ForeignKey(
+        "auth.User",
+        on_delete=models.PROTECT,
+        related_name="created_holidays",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["date"]
+
+    def __str__(self):
+        return f"{self.date} - {self.name}"
+
+    @classmethod
+    def is_holiday(cls, date=None):
+        """
+        Return True when the supplied date is an active holiday.
+
+        If no date is supplied, today's India-local date is used.
+        """
+
+        if date is None:
+            date = timezone.localdate()
+
+        return cls.objects.filter(
+            date=date,
+            is_active=True,
+        ).exists()
+
+
 class AttendanceSession(models.Model):
     """
     Attendance session controlled by Admin1.
@@ -121,9 +180,11 @@ class StudentAttendance(models.Model):
 
 
 class VolunteerAttendance(models.Model):
+
     TASK_CHOICES = [
         ("TEACHING", "Teaching"),
         ("CHECKING", "Checking"),
+        ("INVIGILATOR", "Invigilator"),
     ]
 
     STATUS_CHOICES = [
@@ -134,6 +195,7 @@ class VolunteerAttendance(models.Model):
     SOURCE_CHOICES = [
         ("ASSIGNED", "Assigned"),
         ("SPECIAL_ADDED", "Special Added"),
+        ("PLAYING_DAY", "Playing Day"),
     ]
 
     session = models.ForeignKey(
@@ -154,7 +216,7 @@ class VolunteerAttendance(models.Model):
     )
 
     attendance_source = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=SOURCE_CHOICES,
         default="ASSIGNED",
     )
@@ -177,7 +239,7 @@ class VolunteerAttendance(models.Model):
                     "volunteer",
                 ],
                 name="unique_volunteer_attendance_per_session",
-            )
+            ),
         ]
 
         ordering = [

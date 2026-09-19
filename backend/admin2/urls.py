@@ -2,9 +2,11 @@ from django.urls import path
 
 from .views import (
     Admin2DashboardView,
+    DailySchoolStatusView,
     AssignmentHistoryView,
     CautionListView,
     DailyReportPNGView,
+    AssignmentExcelExportView,
     DecideAccessRequestView,
     PresentStudentsTodayView,
     RegisteredVolunteersView,
@@ -16,21 +18,60 @@ from .views import (
     VolunteerXPView,
     ManualXPView,
     AccessRequestListView,
+    RetryAssignmentEmailView,
 )
+
 from .volunteer_access_views import (
     VolunteerRequestAccessView,
 )
 
+from .holiday_views import (
+    HolidayListCreateView,
+    HolidayDetailView,
+)
+
 
 urlpatterns = [
-    # Dashboard
+    # ============================================================
+    # DAILY SCHOOL STATUS
+    # ============================================================
+
+    path(
+        "daily-status/",
+        DailySchoolStatusView.as_view(),
+        name="admin2-daily-status",
+    ),
+
+    # ============================================================
+    # HOLIDAYS
+    # ============================================================
+
+    path(
+        "holidays/",
+        HolidayListCreateView.as_view(),
+        name="admin2-holiday-list-create",
+    ),
+
+    path(
+        "holidays/<int:holiday_id>/",
+        HolidayDetailView.as_view(),
+        name="admin2-holiday-detail",
+    ),
+
+    # ============================================================
+    # DASHBOARD
+    # ============================================================
+
     path(
         "dashboard/",
         Admin2DashboardView.as_view(),
         name="admin2-dashboard",
     ),
 
-    # Students
+    # ============================================================
+    # STUDENTS
+    # ============================================================
+
     path(
         "students/total/",
         TotalStudentsView.as_view(),
@@ -43,14 +84,20 @@ urlpatterns = [
         name="admin2-present-students",
     ),
 
-    # Volunteers
+    # ============================================================
+    # VOLUNTEERS
+    # ============================================================
+
     path(
         "volunteers/",
         RegisteredVolunteersView.as_view(),
         name="admin2-volunteers",
     ),
 
-    # Assignments
+    # ============================================================
+    # ASSIGNMENTS
+    # ============================================================
+
     path(
         "assignments/today/",
         TodayAssignmentsView.as_view(),
@@ -75,7 +122,22 @@ urlpatterns = [
         name="admin2-daily-report-png",
     ),
 
+    path(
+        "assignments/export-excel/",
+        AssignmentExcelExportView.as_view(),
+        name="admin2-assignment-excel-export",
+    ),
+
+    path(
+        "assignments/<int:assignment_id>/retry-email/",
+        RetryAssignmentEmailView.as_view(),
+        name="admin2-retry-assignment-email",
+    ),
+
+    # ============================================================
     # XP
+    # ============================================================
+
     path(
         "xp/<int:volunteer_id>/",
         VolunteerXPView.as_view(),
@@ -88,14 +150,20 @@ urlpatterns = [
         name="admin2-manual-xp",
     ),
 
-    # Caution
+    # ============================================================
+    # CAUTION
+    # ============================================================
+
     path(
         "cautions/",
         CautionListView.as_view(),
         name="admin2-cautions",
     ),
 
-    # Volunteer access status
+    # ============================================================
+    # VOLUNTEER ACCOUNT STATUS
+    # ============================================================
+
     path(
         "volunteers/<int:volunteer_id>/status/",
         VolunteerStatusView.as_view(),
@@ -108,7 +176,10 @@ urlpatterns = [
         name="admin2-remove-volunteer",
     ),
 
-    # Access requests
+    # ============================================================
+    # ACCESS REQUESTS
+    # ============================================================
+
     path(
         "access-requests/",
         AccessRequestListView.as_view(),
@@ -121,7 +192,10 @@ urlpatterns = [
         name="admin2-decide-access-request",
     ),
 
-    # Public removed-volunteer request
+    # ============================================================
+    # PUBLIC REMOVED-VOLUNTEER REQUEST
+    # ============================================================
+
     path(
         "volunteer/request-access/",
         VolunteerRequestAccessView.as_view(),
