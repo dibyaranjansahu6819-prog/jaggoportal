@@ -1,7 +1,33 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, ClipboardList, GraduationCap, ShieldCheck, Users } from "lucide-react";
+import { ArrowRight, ClipboardList, GraduationCap, Linkedin, ShieldCheck, Users } from "lucide-react";
 
 type PortalLink = { label: string; to: string };
+
+type Developer = { name: string; role: string; bio: string; linkedin: string; initials: string };
+
+const developers: Developer[] = [
+  {
+    name: "Dibyaranjan Sahu",
+    role: "Backend Developer",
+    bio: "This is Dibyaranjan Sahu, Backend Developer. It has been an aim at core of my heart to build something which would add value to the society along with tech. It has been great experience building this website, hope this bring a great change in people's life.",
+    linkedin: "https://www.linkedin.com/in/dibyaranjan-sahu-843534339?utm_source=share_via&utm_content=profile&utm_medium=member_android",
+    initials: "DS",
+  },
+  {
+    name: "Hitesh Kumar Satpathy",
+    role: "Frontend Developer",
+    bio: "This is Hitesh Kumar Satpathy, Frontend Developer. It has been an aim at core of my heart to build something which would add value to the society along with tech. It has been great experience building this website, hope this bring a great change in people's life.",
+    linkedin: "https://www.linkedin.com/in/hitesh-kumar-satpathy-46922a35b?utm_source=share_via&utm_content=profile&utm_medium=member_android",
+    initials: "HS",
+  },
+  {
+    name: "Omm Prasad Sahoo",
+    role: "Deployment Engineer",
+    bio: "This is Omm Prasad Sahoo, Deployment Engineer. It has been an aim at core of my heart to build something which would add value to the society along with tech. It has been great experience building this website, hope this bring a great change in people's life.",
+    linkedin: "https://www.linkedin.com/in/omm-prasad-sahoo-934a45336?utm_source=share_via&utm_content=profile&utm_medium=member_android",
+    initials: "OS",
+  },
+];
 
 const portalChoices: {
   title: string;
@@ -103,6 +129,23 @@ function HomePage() {
               quality education accessible for every child. From classroom lessons to attendance tracking, the
               Jaago Teaching Portal is built to support students, volunteers and administrators every step of the way.
             </p>
+          </div>
+        </section>
+
+        <section id="developers" className="portal-developers" aria-labelledby="developers-heading">
+          <h2 id="developers-heading">Meet the Developers</h2>
+          <div className="portal-developer-grid">
+            {developers.map(({ name, role, bio, linkedin, initials }) => (
+              <article className="developer-card" key={name}>
+                <div className="developer-avatar" aria-hidden="true">{initials}</div>
+                <h3>{name}</h3>
+                <p className="developer-role">{role}</p>
+                <p className="developer-bio">{bio}</p>
+                <a className="developer-link" href={linkedin} target="_blank" rel="noopener noreferrer">
+                  <Linkedin size={16} aria-hidden="true" /> LinkedIn
+                </a>
+              </article>
+            ))}
           </div>
         </section>
 
