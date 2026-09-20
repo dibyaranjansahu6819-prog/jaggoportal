@@ -9,6 +9,7 @@ from .views import (
     AssignmentExcelExportView,
     DecideAccessRequestView,
     PresentStudentsTodayView,
+    PresentVolunteersTodayView,
     RegisteredVolunteersView,
     RemoveVolunteerView,
     SendAssignmentView,
@@ -92,6 +93,12 @@ urlpatterns = [
         "volunteers/",
         RegisteredVolunteersView.as_view(),
         name="admin2-volunteers",
+    ),
+
+    path(
+        "volunteers/present-today/",
+        PresentVolunteersTodayView.as_view(),
+        name="admin2-present-volunteers",
     ),
 
     # ============================================================

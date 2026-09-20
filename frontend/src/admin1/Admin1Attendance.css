@@ -1,0 +1,712 @@
+/* ============================================================
+   JAAGO PORTAL — ADMIN 1 ATTENDANCE TOOLKIT
+   Same palette, font and background treatment as Admin 2.
+   ============================================================ */
+
+:root {
+    --a1-ink: #3a3226;
+    --a1-muted: #6c6250;
+    --a1-ink-strong: #4b3b1a;
+    --a1-line: #f0e6cc;
+    --a1-paper: #fffdf6;
+    --a1-green: #3f9142;
+    --a1-green-soft: #e7f5e9;
+    --a1-green-text: #2e7d32;
+    --a1-gold: #e8b514;
+    --a1-gold-soft: #fdf3d6;
+    --a1-gold-text: #b9840a;
+    --a1-violet: #7c3aed;
+    --a1-violet-soft: #ede3fb;
+    --a1-violet-text: #6d28d9;
+    --a1-red: #b3452f;
+    --a1-red-soft: #fbe9e4;
+    --a1-beige-1: #f8f1e1;
+    --a1-beige-2: #f1e6cd;
+    --a1-beige-3: #ece0c4;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body, #root {
+    margin: 0;
+    min-height: 100%;
+}
+
+/* ============================================================
+   PAGE
+   ============================================================ */
+
+.admin-attendance-page {
+    position: relative;
+    min-height: 100vh;
+    padding: 24px 30px 42px;
+    overflow-x: hidden;
+    color: var(--a1-ink);
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    background:
+        radial-gradient(circle at 15% 10%, #fffaf0 0%, transparent 45%),
+        radial-gradient(circle at 90% 85%, #f3ecda 0%, transparent 50%),
+        linear-gradient(160deg, var(--a1-beige-1) 0%, var(--a1-beige-2) 55%, var(--a1-beige-3) 100%);
+}
+
+.admin-attendance-page > :not(.jb-watermark):not(.jb-corner) {
+    position: relative;
+    z-index: 1;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+
+.toolkit-header {
+    display: grid;
+    grid-template-columns: 170px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 22px;
+    min-height: 122px;
+    max-width: 1500px;
+    margin: 0 auto 24px;
+    padding: 20px 26px;
+    background: #fff;
+    border: 1px solid var(--a1-line);
+    border-top: 6px solid var(--a1-violet);
+    border-radius: 20px;
+    box-shadow: 0 12px 30px rgba(80, 60, 20, 0.08);
+}
+
+.toolkit-logo {
+    width: 140px;
+    height: 90px;
+    object-fit: contain;
+}
+
+.toolkit-brand {
+    text-align: center;
+}
+
+.toolkit-eyebrow {
+    margin: 0;
+    color: var(--a1-violet-text);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+
+.toolkit-title {
+    margin: 6px 0 0;
+    font-size: 28px;
+    color: var(--a1-ink-strong);
+}
+
+.toolkit-session {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.session-label {
+    color: var(--a1-muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.session-timer {
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--a1-green-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.session-date {
+    color: var(--a1-muted);
+    font-size: 12.5px;
+}
+
+.end-session-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--a1-line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--a1-ink);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    padding: 9px 16px;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.end-session-btn:hover {
+    background: var(--a1-violet);
+    border-color: var(--a1-violet);
+    color: #fff;
+}
+
+/* ============================================================
+   MESSAGES / LOADING
+   ============================================================ */
+
+.toolkit-message {
+    max-width: 1500px;
+    margin: 0 auto 16px;
+    padding: 13px 18px;
+    background: var(--a1-gold-soft);
+    border: 1px solid #e3c877;
+    border-radius: 12px;
+    color: #7a5c14;
+    font-size: 13.5px;
+    font-weight: 700;
+}
+
+.toolkit-loading {
+    max-width: 1500px;
+    margin: 40px auto;
+    text-align: center;
+    color: var(--a1-muted);
+    font-size: 15px;
+}
+
+/* ============================================================
+   GRID + PANELS
+   ============================================================ */
+
+.attendance-toolkit-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    max-width: 1500px;
+    margin: 0 auto;
+}
+
+.toolkit-panel {
+    background: #fff;
+    border: 1px solid var(--a1-line);
+    border-radius: 20px;
+    box-shadow: 0 12px 30px rgba(80, 60, 20, 0.08);
+    overflow: hidden;
+    padding: 26px 28px;
+}
+
+.toolkit-panel:has(.panel-header) {
+    padding: 0;
+}
+
+.toolkit-panel > p {
+    margin: 0 0 20px;
+    color: var(--a1-ink);
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.toolkit-panel > a {
+    margin-left: 14px;
+    color: var(--a1-violet-text);
+    font-weight: 700;
+    font-size: 13.5px;
+    text-decoration: none;
+}
+
+.toolkit-panel > a:hover {
+    text-decoration: underline;
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 18px 22px;
+    background: #f7f1e7;
+    border-bottom: 1px solid var(--a1-line);
+}
+
+.panel-kicker {
+    color: var(--a1-muted);
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+}
+
+.panel-count {
+    color: var(--a1-ink-strong);
+    font-size: 13px;
+    font-weight: 800;
+    background: #fff;
+    border: 1px solid var(--a1-line);
+    border-radius: 999px;
+    padding: 6px 14px;
+    white-space: nowrap;
+}
+
+/* ============================================================
+   ATTENDANCE LIST
+   ============================================================ */
+
+.attendance-list {
+    max-height: 520px;
+    overflow-y: auto;
+}
+
+.list-empty {
+    padding: 30px 22px;
+    color: var(--a1-muted);
+    font-size: 13.5px;
+    text-align: center;
+}
+
+.attendance-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 22px;
+    border-bottom: 1px solid #f1e9d8;
+}
+
+.attendance-row:last-child {
+    border-bottom: 0;
+}
+
+.attendance-row:hover {
+    background: #fbf8f0;
+}
+
+.person-avatar {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--a1-violet-soft);
+    color: var(--a1-violet-text);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.person-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.person-info strong {
+    font-size: 14px;
+    color: var(--a1-ink-strong);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.person-info span {
+    color: var(--a1-muted);
+    font-size: 12px;
+}
+
+/* ============================================================
+   STATUS (PRESENT / ABSENT)
+   ============================================================ */
+
+.status-buttons {
+    display: inline-flex;
+    flex-shrink: 0;
+    gap: 4px;
+    padding: 3px;
+    background: #f4efe3;
+    border: 1px solid var(--a1-line);
+    border-radius: 9px;
+}
+
+.status-btn {
+    width: 78px;
+    padding: 8px 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    color: var(--a1-muted);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 800;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.status-btn:hover {
+    background: #fff;
+}
+
+.status-btn.present.active {
+    background: var(--a1-green-soft);
+    border-color: #a9c69f;
+    color: var(--a1-green-text);
+}
+
+.status-btn.absent.active {
+    background: var(--a1-red-soft);
+    border-color: #d7a897;
+    color: var(--a1-red);
+}
+
+/* ============================================================
+   SOURCE PILL BADGE
+   ============================================================ */
+
+.source-pill {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    width: fit-content;
+}
+
+.source-assigned {
+    background: var(--a1-violet-soft);
+    color: var(--a1-violet-text);
+}
+
+.source-special {
+    background: var(--a1-gold-soft);
+    color: var(--a1-gold-text);
+}
+
+/* ============================================================
+   PANEL FOOTER / ADD VOLUNTEER
+   ============================================================ */
+
+.panel-footer {
+    padding: 16px 22px;
+    border-top: 1px solid var(--a1-line);
+    background: #fbf8f0;
+}
+
+.add-volunteer-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 22px;
+    border: 1px solid #607c53;
+    border-radius: 8px;
+    background: var(--a1-green);
+    color: #fff;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 800;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+}
+
+.add-volunteer-btn:hover {
+    filter: brightness(0.95);
+}
+
+.add-volunteer-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* ============================================================
+   VOLUNTEER MODAL
+   ============================================================ */
+
+.volunteer-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(40, 32, 24, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 60;
+}
+
+.volunteer-modal {
+    background: var(--a1-paper);
+    border-radius: 18px;
+    max-width: 480px;
+    width: 100%;
+    max-height: 86vh;
+    overflow: auto;
+    box-shadow: 0 24px 60px rgba(40, 32, 24, 0.32);
+}
+
+.modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 20px 22px;
+    border-bottom: 1px solid var(--a1-line);
+}
+
+.modal-header > div:first-child > span {
+    color: var(--a1-violet-text);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 1px;
+}
+
+.modal-header h2 {
+    margin: 6px 0 4px;
+    font-size: 20px;
+    color: var(--a1-ink-strong);
+}
+
+.modal-header p {
+    margin: 0;
+    color: var(--a1-muted);
+    font-size: 13px;
+}
+
+.modal-close {
+    flex-shrink: 0;
+    border: 0;
+    background: var(--a1-red-soft);
+    color: var(--a1-red);
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.available-volunteer-list {
+    padding: 20px 22px;
+}
+
+.modal-empty {
+    text-align: center;
+    padding: 20px 10px;
+    color: var(--a1-muted);
+}
+
+.modal-empty strong {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--a1-ink-strong);
+}
+
+.modal-empty span {
+    font-size: 13px;
+}
+
+.modal-form {
+    display: grid;
+    gap: 16px;
+}
+
+.modal-field {
+    display: grid;
+    gap: 7px;
+    border: 0;
+    padding: 0;
+    margin: 0;
+}
+
+.modal-field > span,
+.modal-field > legend {
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    color: var(--a1-muted);
+    padding: 0;
+}
+
+.modal-field select {
+    border: 1px solid var(--a1-line);
+    background: #fff;
+    color: var(--a1-ink);
+    border-radius: 7px;
+    padding: 11px 12px;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+}
+
+.modal-field select:focus {
+    border-color: var(--a1-violet);
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+}
+
+.radio-group {
+    display: flex;
+    gap: 10px;
+}
+
+.radio-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 13px;
+    background: #fff;
+    border: 1px solid var(--a1-line);
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 13.5px;
+    color: var(--a1-ink);
+}
+
+.radio-option.active {
+    border-color: var(--a1-violet);
+    background: var(--a1-violet-soft);
+    color: var(--a1-violet-text);
+}
+
+.modal-add-btn {
+    border: 0;
+    border-radius: 7px;
+    background: var(--a1-green);
+    color: #fff;
+    font-family: inherit;
+    font-weight: 800;
+    font-size: 14px;
+    padding: 12px 16px;
+    cursor: pointer;
+}
+
+.modal-add-btn:hover:not(:disabled) {
+    filter: brightness(0.95);
+}
+
+.modal-add-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.available-volunteer-list::-webkit-scrollbar,
+.attendance-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.available-volunteer-list::-webkit-scrollbar-track,
+.attendance-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.available-volunteer-list::-webkit-scrollbar-thumb,
+.attendance-list::-webkit-scrollbar-thumb {
+    background: #e1d5b8;
+    border-radius: 999px;
+}
+
+/* ============================================================
+   HOLIDAY STATE
+   ============================================================ */
+
+.holiday-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 70vh;
+}
+
+.holiday-card {
+    background: #fff;
+    border: 1px solid var(--a1-line);
+    border-top: 6px solid var(--a1-gold);
+    border-radius: 20px;
+    box-shadow: 0 12px 30px rgba(80, 60, 20, 0.08);
+    padding: 40px 46px;
+    text-align: center;
+    max-width: 420px;
+}
+
+.holiday-card h2 {
+    margin: 0 0 10px;
+    font-size: 24px;
+    color: var(--a1-ink-strong);
+}
+
+.holiday-card p {
+    margin: 6px 0;
+    color: var(--a1-muted);
+    font-size: 14.5px;
+}
+
+.holiday-home-btn {
+    margin-top: 22px;
+    padding: 12px 30px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--a1-violet);
+    color: #fff;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.holiday-home-btn:hover {
+    filter: brightness(0.95);
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 1100px) {
+    .attendance-toolkit-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 760px) {
+    .admin-attendance-page {
+        padding: 14px 14px 34px;
+    }
+
+    .toolkit-header {
+        grid-template-columns: 1fr;
+        text-align: center;
+        min-height: 0;
+        padding: 16px;
+    }
+
+    .toolkit-logo {
+        margin: 0 auto;
+    }
+
+    .toolkit-session {
+        justify-content: center;
+    }
+
+    .panel-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .attendance-row {
+        flex-wrap: wrap;
+    }
+
+    .status-buttons {
+        margin-left: 54px;
+    }
+}
+
+@media print {
+    .toolkit-header, .toolkit-message {
+        display: none !important;
+    }
+}

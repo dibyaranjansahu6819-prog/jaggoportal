@@ -234,7 +234,7 @@ CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         "CORS_ALLOWED_ORIGINS",
-        "http://localhost:5173",
+        "http://localhost:8080",
     ).split(",")
     if origin.strip()
 ]
@@ -277,7 +277,7 @@ SIMPLE_JWT = {
 
 JAAGO_FRONTEND_RESET_URL = os.getenv(
     "JAAGO_FRONTEND_RESET_URL",
-    "http://localhost:5173/reset-password",
+    "http://localhost:8080/reset-password",
 )
 
 

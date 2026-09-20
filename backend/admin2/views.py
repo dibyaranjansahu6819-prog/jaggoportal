@@ -1,5 +1,7 @@
 import io
+import os
 import textwrap
+from datetime import timedelta
 from django.shortcuts import get_object_or_404
 from django.core.mail import EmailMessage
 from django.db import transaction
@@ -64,19 +66,33 @@ class Admin2BaseView(APIView):
 
 
 class DailySchoolStatusView(Admin2BaseView):
-    """Get or set today's school operating status."""
+    """Get or set the school operating status for today or tomorrow.
+
+    Defaults to today (unchanged behaviour for existing callers such as
+    the Admin 2 dashboard banner). Pass ?scope=tomorrow (GET) or
+    {"scope": "tomorrow"} (POST) so Admin 2 can plan tomorrow's status
+    a day ahead, from the School Day Status page.
+    """
+
+    @staticmethod
+    def _target_date(raw_scope):
+        scope = str(raw_scope or "today").strip().lower()
+        today = timezone.localdate()
+        return today + timedelta(days=1) if scope == "tomorrow" else today
 
     def get(self, request):
-        today = timezone.localdate()
+        target_date = self._target_date(
+            request.query_params.get("scope")
+        )
         daily_status = DailySchoolStatus.objects.filter(
-            date=today
+            date=target_date
         ).select_related("created_by").first()
 
         if not daily_status:
             return Response({
-                "date": today,
+                "date": target_date,
                 "status": None,
-                "message": "Today's school status has not been selected yet.",
+                "message": "Status has not been selected yet.",
             })
 
         return Response(
@@ -85,7 +101,7 @@ class DailySchoolStatusView(Admin2BaseView):
 
     @transaction.atomic
     def post(self, request):
-        today = timezone.localdate()
+        target_date = self._target_date(request.data.get("scope"))
         requested_status = str(
             request.data.get("status", "")
         ).upper().strip()
@@ -108,7 +124,7 @@ class DailySchoolStatusView(Admin2BaseView):
             )
 
         daily_status, created = DailySchoolStatus.objects.get_or_create(
-            date=today,
+            date=target_date,
             defaults={
                 "status": requested_status,
                 "created_by": request.user,
@@ -277,13 +293,59 @@ class RegisteredVolunteersView(Admin2BaseView):
         )
 
 
-class TodayAssignmentsView(Admin2BaseView):
+class PresentVolunteersTodayView(Admin2BaseView):
 
     def get(self, request):
         today = timezone.localdate()
 
+        volunteer_ids = (
+            VolunteerAttendance.objects.filter(
+                session__session_date=today,
+                status="PRESENT",
+            )
+            .values_list(
+                "volunteer_id",
+                flat=True,
+            )
+            .distinct()
+        )
+
+        volunteers = Teacher.objects.filter(
+            id__in=volunteer_ids
+        ).select_related(
+            "course",
+            "subject",
+        ).order_by("name")
+
+        return Response(
+            {
+                "date": today,
+                "count": volunteers.count(),
+                "volunteers": VolunteerListSerializer(
+                    volunteers,
+                    many=True,
+                ).data,
+            }
+        )
+
+
+class TodayAssignmentsView(Admin2BaseView):
+    """Assignments for today by default; ?scope=tomorrow returns
+    tomorrow's assignments instead, so Admin 2 can see who is already
+    assigned tomorrow while assigning ahead of time."""
+
+    def get(self, request):
+        scope = str(
+            request.query_params.get("scope", "today")
+        ).strip().lower()
+        target_date = (
+            timezone.localdate() + timedelta(days=1)
+            if scope == "tomorrow"
+            else timezone.localdate()
+        )
+
         assignments = VolunteerAssignment.objects.filter(
-            assignment_date=today
+            assignment_date=target_date
         ).select_related(
             "volunteer",
             "created_by",
@@ -291,7 +353,7 @@ class TodayAssignmentsView(Admin2BaseView):
 
         return Response(
             {
-                "date": today,
+                "date": target_date,
                 "count": assignments.count(),
                 "assignments": VolunteerAssignmentSerializer(
                     assignments,
@@ -344,7 +406,10 @@ class SendAssignmentView(Admin2BaseView):
 
         assignment = VolunteerAssignment(
             volunteer=volunteer,
-            assignment_date=timezone.localdate(),
+            # Admin 2 assigns volunteers a day ahead: this always
+            # targets tomorrow, matching SendAssignmentSerializer's
+            # tomorrow-based free-day/status/duplicate checks.
+            assignment_date=timezone.localdate() + timedelta(days=1),
             assigned_class=serializer.validated_data[
                 "assigned_class"
             ],
@@ -366,6 +431,16 @@ class SendAssignmentView(Admin2BaseView):
         )
 
         assignment.full_clean()
+
+        # IMPORTANT: the assignment (and its uploaded files) must be
+        # committed to storage before we try to read/attach them below.
+        # Previously this only happened *after* email.send(), so
+        # `assignment.attachment.path` pointed at a file that did not
+        # exist on disk yet — attach_file() then raised a
+        # FileNotFoundError whose message (a filesystem path) is what
+        # ended up surfacing to the admin instead of the PDF actually
+        # being emailed.
+        assignment.save()
 
         class_name = (
             assignment.get_assigned_class_display()
@@ -402,14 +477,20 @@ class SendAssignmentView(Admin2BaseView):
             )
 
             if assignment.attachment:
-                email.attach_file(
-                    assignment.attachment.path
+                assignment.attachment.open("rb")
+                email.attach(
+                    os.path.basename(assignment.attachment.name),
+                    assignment.attachment.read(),
                 )
+                assignment.attachment.close()
 
             if assignment.homework_attachment:
-                email.attach_file(
-                    assignment.homework_attachment.path
+                assignment.homework_attachment.open("rb")
+                email.attach(
+                    os.path.basename(assignment.homework_attachment.name),
+                    assignment.homework_attachment.read(),
                 )
+                assignment.homework_attachment.close()
 
             email.send(
                 fail_silently=False
@@ -870,12 +951,17 @@ class AssignmentExcelExportView(Admin2BaseView):
     """Export volunteer assignment timetable data as an Excel workbook.
 
     By default the export is for today's assignments. Admin2 can optionally
-    provide ?date=YYYY-MM-DD to export the assignments for a specific date.
+    provide ?date=YYYY-MM-DD to export the assignments for a specific date,
+    or ?all=true to export every assignment ever recorded.
     The export intentionally contains timetable/assignment information only;
     attachment contents and XP/statistics are not included.
     """
 
     def get(self, request):
+        export_all = str(
+            request.query_params.get("all", "")
+        ).strip().lower() in ("1", "true", "yes")
+
         selected_date_text = str(
             request.query_params.get("date", "")
         ).strip()
@@ -896,20 +982,29 @@ class AssignmentExcelExportView(Admin2BaseView):
         else:
             selected_date = timezone.localdate()
 
-        assignments = list(
-            VolunteerAssignment.objects.filter(
-                assignment_date=selected_date
-            )
-            .select_related(
-                "volunteer",
-                "volunteer__subject",
-                "created_by",
-            )
-            .order_by(
-                "assigned_class",
-                "volunteer__name",
-            )
+        assignments_qs = VolunteerAssignment.objects.select_related(
+            "volunteer",
+            "volunteer__subject",
+            "created_by",
         )
+
+        if export_all:
+            assignments = list(
+                assignments_qs.order_by(
+                    "assignment_date",
+                    "assigned_class",
+                    "volunteer__name",
+                )
+            )
+        else:
+            assignments = list(
+                assignments_qs.filter(
+                    assignment_date=selected_date
+                ).order_by(
+                    "assigned_class",
+                    "volunteer__name",
+                )
+            )
 
         try:
             from openpyxl import Workbook
@@ -930,17 +1025,22 @@ class AssignmentExcelExportView(Admin2BaseView):
         worksheet = workbook.active
         worksheet.title = "Assignments"
 
-        daily_status = DailySchoolStatus.objects.filter(
-            date=selected_date
-        ).first()
-        status_text = (
-            daily_status.get_status_display()
-            if daily_status
-            else "Status not selected"
-        )
+        if export_all:
+            date_label = "All dates"
+            status_text = "N/A (all dates)"
+        else:
+            daily_status = DailySchoolStatus.objects.filter(
+                date=selected_date
+            ).first()
+            date_label = selected_date.isoformat()
+            status_text = (
+                daily_status.get_status_display()
+                if daily_status
+                else "Status not selected"
+            )
 
         worksheet.append(["JAAGO PORTAL - VOLUNTEER ASSIGNMENTS"])
-        worksheet.append(["Date", selected_date.isoformat()])
+        worksheet.append(["Date", date_label])
         worksheet.append(["School Status", status_text])
         worksheet.append([])
 
@@ -1025,9 +1125,10 @@ class AssignmentExcelExportView(Admin2BaseView):
                 "spreadsheetml.sheet"
             ),
         )
+        filename_suffix = "all" if export_all else selected_date
         response["Content-Disposition"] = (
             'attachment; '
-            f'filename="jaago_assignments_{selected_date}.xlsx"'
+            f'filename="jaago_assignments_{filename_suffix}.xlsx"'
         )
         return response
 

@@ -114,15 +114,12 @@ class PasswordResetRequestView(APIView):
             uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
             token = default_token_generator.make_token(user)
 
-            frontend_url = os.environ.get(
-                "JAAGO_FRONTEND_URL",
-                "http://localhost:5173",
+            reset_base_url = os.environ.get(
+                "JAAGO_FRONTEND_RESET_URL",
+                "http://localhost:5173/reset-password",
             ).rstrip("/")
 
-            reset_url = (
-                f"{frontend_url}/reset-password/"
-                f"{uidb64}/{token}/"
-            )
+            reset_url = f"{reset_base_url}/{uidb64}/{token}/"
 
             subject = "Jaago Portal - Password Reset"
             message = (

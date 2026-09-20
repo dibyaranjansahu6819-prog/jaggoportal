@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -208,8 +210,11 @@ class SendAssignmentSerializer(serializers.Serializer):
         Validate that the volunteer:
         1. Is not removed.
         2. Has a registered email.
-        3. Is available on today's weekday.
-        4. Does not already have an assignment today.
+        3. Is available on tomorrow's weekday.
+        4. Does not already have an assignment tomorrow.
+
+        Admin 2 assigns volunteers a day ahead of time, so every check
+        here targets tomorrow's date, matching SendAssignmentView.
         """
 
         # -----------------------------------------
@@ -236,11 +241,11 @@ class SendAssignmentSerializer(serializers.Serializer):
             )
 
         # -----------------------------------------
-        # 3. Get today's date from backend
+        # 3. Get tomorrow's date from backend
         # -----------------------------------------
-        today = timezone.localdate()
+        target_date = timezone.localdate() + timedelta(days=1)
 
-        weekday = today.strftime("%A")
+        weekday = target_date.strftime("%A")
 
         # -----------------------------------------
         # 4. Read volunteer free days safely
@@ -278,25 +283,25 @@ class SendAssignmentSerializer(serializers.Serializer):
         # 7. Prevent duplicate daily assignment
         # -----------------------------------------
         daily_status = DailySchoolStatus.objects.filter(
-            date=today
+            date=target_date
         ).first()
 
         if not daily_status:
             raise serializers.ValidationError(
-                "Please select Regular Class in today's school status before assigning a volunteer."
+                "Please select Regular Class in tomorrow's school status before assigning a volunteer."
             )
 
         if daily_status.status != "REGULAR_CLASS":
             raise serializers.ValidationError(
-                "Volunteer assignments are allowed only when today's status is Regular Class."
+                "Volunteer assignments are allowed only when tomorrow's status is Regular Class."
             )
 
         if VolunteerAssignment.objects.filter(
             volunteer=volunteer,
-            assignment_date=today,
+            assignment_date=target_date,
         ).exists():
             raise serializers.ValidationError(
-                "This volunteer already has an assignment for today."
+                "This volunteer already has an assignment for tomorrow."
             )
 
         return volunteer

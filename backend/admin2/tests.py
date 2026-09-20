@@ -490,13 +490,22 @@ class Admin2BackendTests(TestCase):
 
     @patch("admin2.views.EmailMessage.send")
     def test_duplicate_daily_assignment_is_rejected(self, mock_send):
-        today = timezone.localdate()
+        # Assignments now target tomorrow: Admin 2 assigns a day ahead.
+        tomorrow = timezone.localdate() + timedelta(days=1)
 
         self.volunteer.free_days = [
-            today.strftime("%A")
+            tomorrow.strftime("%A")
         ]
         self.volunteer.save(
             update_fields=["free_days"]
+        )
+
+        DailySchoolStatus.objects.update_or_create(
+            date=tomorrow,
+            defaults={
+                "status": "REGULAR_CLASS",
+                "created_by": self.admin2_user,
+            },
         )
 
         mock_send.return_value = 1
@@ -534,14 +543,14 @@ class Admin2BackendTests(TestCase):
         )
 
         self.assertIn(
-            "already has an assignment for today",
+            "already has an assignment for tomorrow",
             str(second_response.json()),
         )
 
         self.assertEqual(
             VolunteerAssignment.objects.filter(
                 volunteer=self.volunteer,
-                assignment_date=today,
+                assignment_date=tomorrow,
             ).count(),
             1,
         )
@@ -769,8 +778,9 @@ class Admin2BackendTests(TestCase):
         )
 
     def test_assignment_requires_regular_class_status(self):
+        # Assignments now target tomorrow: Admin 2 assigns a day ahead.
         DailySchoolStatus.objects.update_or_create(
-            date=timezone.localdate(),
+            date=timezone.localdate() + timedelta(days=1),
             defaults={
                 "status": "HOLIDAY",
                 "created_by": self.admin2_user,
@@ -790,8 +800,9 @@ class Admin2BackendTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_assignment_accepts_invigilator_and_optional_homework(self):
+        # Assignments now target tomorrow: Admin 2 assigns a day ahead.
         DailySchoolStatus.objects.update_or_create(
-            date=timezone.localdate(),
+            date=timezone.localdate() + timedelta(days=1),
             defaults={
                 "status": "REGULAR_CLASS",
                 "created_by": self.admin2_user,
@@ -815,7 +826,7 @@ class Admin2BackendTests(TestCase):
         self.assertTrue(
             VolunteerAssignment.objects.filter(
                 volunteer=self.volunteer,
-                assignment_date=timezone.localdate(),
+                assignment_date=timezone.localdate() + timedelta(days=1),
                 task="INVIGILATOR",
             ).exists()
         )
