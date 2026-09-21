@@ -14,23 +14,31 @@ class Command(BaseCommand):
     available to run this by hand.
     """
 
-    help = "Create or update the Admin 1 and Admin 2 accounts."
+    help = "Create or update the Admin 1 and Admin 2 accounts from env vars."
 
     def handle(self, *args, **options):
         accounts = [
             (
-                os.getenv("ADMIN1_USERNAME", "CHANDTL001"),
-                os.getenv("ADMIN1_PASSWORD", "chand@001"),
+                os.getenv("ADMIN1_USERNAME"),
+                os.getenv("ADMIN1_PASSWORD"),
                 "ADMIN1",
             ),
             (
-                os.getenv("ADMIN2_USERNAME", "MISHRATL002"),
-                os.getenv("ADMIN2_PASSWORD", "mishra@002"),
+                os.getenv("ADMIN2_USERNAME"),
+                os.getenv("ADMIN2_PASSWORD"),
                 "ADMIN2",
             ),
         ]
 
         for username, password, role in accounts:
+            if not username or not password:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"{role}_USERNAME / {role}_PASSWORD not set — skipping."
+                    )
+                )
+                continue
+
             user, _ = User.objects.get_or_create(username=username)
             user.set_password(password)
             user.is_active = True
