@@ -392,142 +392,123 @@ class SendAssignmentView(Admin2BaseView):
 
     @transaction.atomic
     def post(self, request):
-        serializer = SendAssignmentSerializer(
-            data=request.data
+    serializer = SendAssignmentSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    volunteer = serializer.validated_data["volunteer"]
+
+    assignment = VolunteerAssignment(
+        volunteer=volunteer,
+        assignment_date=timezone.localdate() + timedelta(days=1),
+        assigned_class=serializer.validated_data["assigned_class"],
+        task=serializer.validated_data["task"],
+        instruction=serializer.validated_data.get("instruction", ""),
+        attachment=serializer.validated_data.get("attachment"),
+        homework_attachment=serializer.validated_data.get(
+            "homework_attachment"
+        ),
+        sender_email="",
+        created_by=request.user,
+    )
+
+    assignment.full_clean()
+
+    # Save assignment and uploaded files first
+    assignment.save()
+
+    class_name = assignment.get_assigned_class_display()
+    task_name = assignment.get_task_display()
+
+    subject = (
+        "Jaago Team - Volunteer Assignment - "
+        f"{class_name}"
+    )
+
+    body = (
+        f"Hello {volunteer.name},\n\n"
+        "You have been assigned the following task "
+        f"for {assignment.assignment_date}.\n\n"
+        f"Class: {class_name}\n"
+        f"Task: {task_name}\n\n"
+        "Instruction / Details:\n"
+        f"{assignment.instruction or 'No additional instructions.'}\n\n"
+        f"Teaching / Checking Module: "
+        f"{os.path.basename(assignment.attachment.name) if assignment.attachment else 'Not provided'}\n"
+        f"Homework: "
+        f"{os.path.basename(assignment.homework_attachment.name) if assignment.homework_attachment else 'Not provided'}\n\n"
+        "Please follow the assigned instructions.\n\n"
+        "Regards, Jaago Team"
+    )
+
+    try:
+        email = EmailMessage(
+            subject=subject,
+            body=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[volunteer.email],
         )
 
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        volunteer = serializer.validated_data[
-            "volunteer"
-        ]
-
-        assignment = VolunteerAssignment(
-            volunteer=volunteer,
-            # Admin 2 assigns volunteers a day ahead: this always
-            # targets tomorrow, matching SendAssignmentSerializer's
-            # tomorrow-based free-day/status/duplicate checks.
-            assignment_date=timezone.localdate() + timedelta(days=1),
-            assigned_class=serializer.validated_data[
-                "assigned_class"
-            ],
-            task=serializer.validated_data[
-                "task"
-            ],
-            instruction=serializer.validated_data.get(
-                "instruction",
-                "",
-            ),
-            attachment=serializer.validated_data.get(
-                "attachment"
-            ),
-            homework_attachment=serializer.validated_data.get(
-                "homework_attachment"
-            ),
-            sender_email="",
-            created_by=request.user,
-        )
-
-        assignment.full_clean()
-
-        # IMPORTANT: the assignment (and its uploaded files) must be
-        # committed to storage before we try to read/attach them below.
-        # Previously this only happened *after* email.send(), so
-        # `assignment.attachment.path` pointed at a file that did not
-        # exist on disk yet — attach_file() then raised a
-        # FileNotFoundError whose message (a filesystem path) is what
-        # ended up surfacing to the admin instead of the PDF actually
-        # being emailed.
-        assignment.save()
-
-        class_name = (
-            assignment.get_assigned_class_display()
-        )
-
-        task_name = (
-            assignment.get_task_display()
-        )
-
-        subject = (
-            "Jaago Team - Volunteer Assignment - "
-            f"{class_name}"
-        )
-
-        body = (
-            f"Hello {volunteer.name},\n\n"
-            "You have been assigned the following task "
-            f"for {assignment.assignment_date}.\n\n"
-            f"Class: {class_name}\n"
-            f"Task: {task_name}\n\n"
-            "Instruction / Details:\n"
-            f"{assignment.instruction or 'No additional instructions.'}\n\n"
-            f"Teaching / Checking Module: {assignment.attachment.name.split('/')[-1] if assignment.attachment else 'Not provided'}\n"
-            f"Homework: {assignment.homework_attachment.name.split('/')[-1] if assignment.homework_attachment else 'Not provided'}\n\n"
-            "Please follow the assigned instructions.\n\n"
-            "Regards, Jaago Team"
-        )
-
-        try:
-            email = EmailMessage(
-                subject=subject,
-                body=body,
-                to=[volunteer.email],
-            )
-
-            if assignment.attachment:
-                assignment.attachment.open("rb")
+        # Teaching / checking module
+        if assignment.attachment:
+            with assignment.attachment.open("rb") as file:
                 email.attach(
                     os.path.basename(assignment.attachment.name),
-                    assignment.attachment.read(),
+                    file.read(),
                 )
-                assignment.attachment.close()
 
-            if assignment.homework_attachment:
-                assignment.homework_attachment.open("rb")
+        # Homework
+        if assignment.homework_attachment:
+            with assignment.homework_attachment.open("rb") as file:
                 email.attach(
-                    os.path.basename(assignment.homework_attachment.name),
-                    assignment.homework_attachment.read(),
+                    os.path.basename(
+                        assignment.homework_attachment.name
+                    ),
+                    file.read(),
                 )
-                assignment.homework_attachment.close()
 
-            email.send(
-                fail_silently=False
-            )
+        email.send(fail_silently=False)
 
-            assignment.email_status = "SENT"
-            assignment.email_sent_at = timezone.now()
-            assignment.sender_email = (
-                getattr(
-                    email,
-                    "from_email",
-                    ""
-                )
-                or ""
-            )
+        assignment.email_status = "SENT"
+        assignment.email_sent_at = timezone.now()
+        assignment.sender_email = settings.DEFAULT_FROM_EMAIL
+        assignment.email_error = ""
 
-            assignment.save()
-
-        except Exception as exc:
-            assignment.email_status = "FAILED"
-            assignment.email_error = str(exc)
-            assignment.save()
-
-            return Response(
-                {
-                    "detail": "Email could not be sent.",
-                    "error": str(exc),
-                    "assignment": VolunteerAssignmentSerializer(
-                        assignment
-                    ).data,
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        assignment.save(
+            update_fields=[
+                "email_status",
+                "email_sent_at",
+                "sender_email",
+                "email_error",
+            ]
+        )
 
         return Response(
             {
-                "message": "Assignment sent successfully.",
+                "message": "Assignment created and email sent successfully.",
+                "email_status": "SENT",
+                "assignment": VolunteerAssignmentSerializer(
+                    assignment
+                ).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    except Exception as exc:
+        # Assignment remains saved.
+        assignment.email_status = "FAILED"
+        assignment.email_error = str(exc)
+        assignment.save(
+            update_fields=[
+                "email_status",
+                "email_error",
+            ]
+        )
+
+        return Response(
+            {
+                "message": "Assignment created, but email could not be sent.",
+                "email_status": "FAILED",
+                "error": str(exc),
                 "assignment": VolunteerAssignmentSerializer(
                     assignment
                 ).data,
@@ -1146,77 +1127,86 @@ class RetryAssignmentEmailView(APIView):
 
         if not volunteer.email:
             return Response(
-                {"detail": "Volunteer does not have a registered email address."},
+                {
+                    "detail": (
+                        "Volunteer does not have a registered "
+                        "email address."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if assignment.email_status != "FAILED":
             return Response(
                 {
-                    "detail": "Only failed assignments can be retried.",
+                    "detail": (
+                        "Only failed assignments can be retried."
+                    ),
                     "email_status": assignment.email_status,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        class_name = assignment.get_assigned_class_display()
+        task_name = assignment.get_task_display()
+
         subject = (
-            f"Jaago Team - Volunteer Assignment - "
-            f"{assignment.assigned_class}"
+            "Jaago Team - Volunteer Assignment - "
+            f"{class_name}"
         )
 
         body = (
-            f"Dear {volunteer.name},\n\n"
-            f"You have been assigned the following work:\n\n"
-            f"Date: {assignment.assignment_date}\n"
-            f"Class: {assignment.assigned_class}\n"
-            f"Task: {assignment.get_task_display()}\n"
-            f"Instruction: {assignment.instruction or 'No additional instruction.'}\n\n"
+            f"Hello {volunteer.name},\n\n"
+            "This is a retry of your volunteer assignment.\n\n"
+            f"You have been assigned the following task "
+            f"for {assignment.assignment_date}.\n\n"
+            f"Class: {class_name}\n"
+            f"Task: {task_name}\n\n"
+            "Instruction / Details:\n"
+            f"{assignment.instruction or 'No additional instructions.'}\n\n"
+            f"Teaching / Checking Module: "
+            f"{os.path.basename(assignment.attachment.name) if assignment.attachment else 'Not provided'}\n"
+            f"Homework: "
+            f"{os.path.basename(assignment.homework_attachment.name) if assignment.homework_attachment else 'Not provided'}\n\n"
+            "Please follow the assigned instructions.\n\n"
+            "Regards, Jaago Team"
         )
-
-        if assignment.attachment:
-            body += f"Teaching/Checking Module: {assignment.attachment.name}\n"
-
-        if assignment.homework_attachment:
-            body += f"Homework: {assignment.homework_attachment.name}\n"
-
-        body += "\nRegards,\nJaago Team"
-
-        email = EmailMessage(
-            subject=subject,
-            body=body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[volunteer.email],
-        )
-
-        if assignment.attachment:
-            try:
-                assignment.attachment.open("rb")
-                email.attach(
-                    os.path.basename(assignment.attachment.name),
-                    assignment.attachment.read(),
-                )
-                assignment.attachment.close()
-            except Exception:
-                pass
-
-        if assignment.homework_attachment:
-            try:
-                assignment.homework_attachment.open("rb")
-                email.attach(
-                    os.path.basename(assignment.homework_attachment.name),
-                    assignment.homework_attachment.read(),
-                )
-                assignment.homework_attachment.close()
-            except Exception:
-                pass
 
         try:
+            email = EmailMessage(
+                subject=subject,
+                body=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[volunteer.email],
+            )
+
+            # Attach teaching/checking module
+            if assignment.attachment:
+                with assignment.attachment.open("rb") as file:
+                    email.attach(
+                        os.path.basename(
+                            assignment.attachment.name
+                        ),
+                        file.read(),
+                    )
+
+            # Attach homework
+            if assignment.homework_attachment:
+                with assignment.homework_attachment.open("rb") as file:
+                    email.attach(
+                        os.path.basename(
+                            assignment.homework_attachment.name
+                        ),
+                        file.read(),
+                    )
+
             email.send(fail_silently=False)
 
             assignment.email_status = "SENT"
             assignment.email_sent_at = timezone.now()
             assignment.email_error = ""
             assignment.sender_email = settings.DEFAULT_FROM_EMAIL
+
             assignment.save(
                 update_fields=[
                     "email_status",
@@ -1229,7 +1219,10 @@ class RetryAssignmentEmailView(APIView):
 
             return Response(
                 {
-                    "message": "Assignment email sent successfully.",
+                    "message": (
+                        "Assignment email sent successfully."
+                    ),
+                    "email_status": "SENT",
                     "assignment": VolunteerAssignmentSerializer(
                         assignment,
                         context={"request": request},
@@ -1241,6 +1234,7 @@ class RetryAssignmentEmailView(APIView):
         except Exception as exc:
             assignment.email_status = "FAILED"
             assignment.email_error = str(exc)
+
             assignment.save(
                 update_fields=[
                     "email_status",
@@ -1251,9 +1245,13 @@ class RetryAssignmentEmailView(APIView):
 
             return Response(
                 {
-                    "detail": "Assignment email failed.",
+                    "message": (
+                        "Assignment exists, but the email "
+                        "could not be sent."
+                    ),
+                    "email_status": "FAILED",
                     "error": str(exc),
                     "assignment_id": assignment.id,
                 },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status=status.HTTP_200_OK,
             )
