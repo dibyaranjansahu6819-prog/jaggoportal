@@ -446,11 +446,9 @@ class SendAssignmentView(Admin2BaseView):
             "Instruction / Details:\n"
             f"{assignment.instruction or 'No additional instructions.'}\n\n"
             f"Teaching / Checking Module: "
-            f"{os.path.basename(assignment.attachment.name) "
-            if assignment.attachment else 'Not provided'}\n"
+            f"{os.path.basename(assignment.attachment.name) if assignment.attachment else 'Not provided'}\n"
             f"Homework: "
-            f"{os.path.basename(assignment.homework_attachment.name) "
-            if assignment.homework_attachment else 'Not provided'}\n\n"
+            f"{os.path.basename(assignment.homework_attachment.name) if assignment.homework_attachment else 'Not provided'}\n\n"
             "Please follow the assigned instructions.\n\n"
             "Regards, Jaago Team"
         )
