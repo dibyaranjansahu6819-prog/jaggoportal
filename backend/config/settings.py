@@ -211,6 +211,8 @@ EMAIL_PORT = 587
 
 EMAIL_USE_TLS = True
 
+EMAIL_TIMEOUT = 20
+
 EMAIL_HOST_USER = os.getenv(
     "JAAGO_EMAIL_USER",
     "abhyudayiter@gmail.com",
