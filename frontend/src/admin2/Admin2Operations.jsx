@@ -145,7 +145,16 @@ export function Admin2Assignments() {
     setRetryingId(id);
     try {
       const response = await API.post(`/admin2/assignments/${id}/retry-email/`);
-      setRows((items) => items.map((item) => (item.id === id ? response.data.assignment : item)));
+      const updatedAssignment = response.data?.assignment;
+    if (updatedAssignment) {
+    setRows((items) =>
+      items.map((item) =>
+      item.id === id ? updatedAssignment : item
+      )
+    );
+    } else {
+    await load();
+    }
     } catch (err) {
       setError(err?.response?.data?.detail || "Unable to retry this email.");
     } finally {
