@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.http import HttpResponse
 from django.conf import settings
 import resend
+import base64
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -482,7 +483,7 @@ class SendAssignmentView(Admin2BaseView):
                             "filename": os.path.basename(
                                 assignment.attachment.name
                             ),
-                            "content": file.read(),
+                            "content": base64.b64encode(file.read()).decode("utf-8"),
                         }
                     )
 
@@ -1300,7 +1301,7 @@ class RetryAssignmentEmailView(APIView):
                             "filename": os.path.basename(
                                 assignment.homework_attachment.name
                             ),
-                            "content": file.read(),
+                            "content": base64.b64encode(file.read()).decode("utf-8"),
                         }
                     )
 
