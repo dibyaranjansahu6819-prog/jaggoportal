@@ -394,6 +394,7 @@ class SendAssignmentView(Admin2BaseView):
         serializer = SendAssignmentSerializer(
             data=request.data
         )
+
         serializer.is_valid(
             raise_exception=True
         )
@@ -431,6 +432,7 @@ class SendAssignmentView(Admin2BaseView):
         class_name = (
             assignment.get_assigned_class_display()
         )
+
         task_name = assignment.get_task_display()
 
         subject = (
@@ -446,75 +448,86 @@ class SendAssignmentView(Admin2BaseView):
             f"Task: {task_name}\n\n"
             "Instruction / Details:\n"
             f"{assignment.instruction or 'No additional instructions.'}\n\n"
-            f"Teaching / Checking Module: "
+            "Teaching / Checking Module: "
             f"{os.path.basename(assignment.attachment.name) if assignment.attachment else 'Not provided'}\n"
-            f"Homework: "
+            "Homework: "
             f"{os.path.basename(assignment.homework_attachment.name) if assignment.homework_attachment else 'Not provided'}\n\n"
             "Please follow the assigned instructions.\n\n"
             "Regards, Jaago Team"
         )
 
         try:
+            # ---------------------------------------------------------
+            # RESEND API KEY
+            # ---------------------------------------------------------
+
             resend.api_key = os.getenv("RESEND_API_KEY")
+
+            if not resend.api_key:
+                raise Exception(
+                    "RESEND_API_KEY is not configured on the server."
+                )
+
+            # ---------------------------------------------------------
+            # PREPARE ATTACHMENTS
+            # ---------------------------------------------------------
 
             attachments = []
 
-        if assignment.attachment:
-            with assignment.attachment.open("rb") as file:
-            attachments.append({
-                "filename": os.path.basename(
-                assignment.attachment.name
-            ),
-            "content": file.read(),
-            })
-
-        if assignment.homework_attachment:
-        with assignment.homework_attachment.open("rb") as file:
-            attachments.append({
-            "filename": os.path.basename(
-                assignment.homework_attachment.name
-            ),
-            "content": file.read(),
-        })
-
-        email_result = resend.Emails.send({
-        "from": os.getenv(
-        "RESEND_FROM_EMAIL",
-        "onboarding@resend.dev",
-        ),
-        "to": [volunteer.email],
-        "subject": subject,
-        "text": body,
-        "attachments": attachments,
-    })
-
-            # Attach teaching/checking module
+            # Teaching / Checking module
             if assignment.attachment:
                 with assignment.attachment.open("rb") as file:
-                    email.attach(
-                        os.path.basename(
-                            assignment.attachment.name
-                        ),
-                        file.read(),
+                    attachments.append(
+                        {
+                            "filename": os.path.basename(
+                                assignment.attachment.name
+                            ),
+                            "content": file.read(),
+                        }
                     )
 
-            # Attach homework
+            # Homework
             if assignment.homework_attachment:
                 with assignment.homework_attachment.open("rb") as file:
-                    email.attach(
-                        os.path.basename(
-                            assignment.homework_attachment.name
-                        ),
-                        file.read(),
+                    attachments.append(
+                        {
+                            "filename": os.path.basename(
+                                assignment.homework_attachment.name
+                            ),
+                            "content": file.read(),
+                        }
                     )
 
-            email.send(fail_silently=False)
+            # ---------------------------------------------------------
+            # RESEND SENDER
+            # ---------------------------------------------------------
+
+            from_email = os.getenv(
+                "RESEND_FROM_EMAIL",
+                "onboarding@resend.dev",
+            )
+
+            # ---------------------------------------------------------
+            # SEND EMAIL THROUGH RESEND
+            # ---------------------------------------------------------
+
+            email_result = resend.Emails.send(
+                {
+                    "from": from_email,
+                    "to": [volunteer.email],
+                    "subject": subject,
+                    "text": body,
+                    "attachments": attachments,
+                }
+            )
+
+            # ---------------------------------------------------------
+            # MARK ASSIGNMENT AS SENT
+            # ---------------------------------------------------------
 
             assignment.email_status = "SENT"
             assignment.email_sent_at = timezone.now()
-            assignment.sender_email = (
-                settings.DEFAULT_FROM_EMAIL
-            )
+            assignment.sender_email = from_email
             assignment.email_error = ""
 
             assignment.save(
@@ -526,6 +539,10 @@ class SendAssignmentView(Admin2BaseView):
                 ]
             )
 
+            # ---------------------------------------------------------
+            # SUCCESS RESPONSE
+            # ---------------------------------------------------------
+
             return Response(
                 {
                     "message": (
@@ -533,9 +550,15 @@ class SendAssignmentView(Admin2BaseView):
                         "email sent successfully."
                     ),
                     "email_status": "SENT",
+                    "resend_id": (
+                        email_result.get("id")
+                        if isinstance(email_result, dict)
+                        else None
+                    ),
                     "assignment": (
                         VolunteerAssignmentSerializer(
-                            assignment
+                            assignment,
+                            context={"request": request},
                         ).data
                     ),
                 },
@@ -543,7 +566,11 @@ class SendAssignmentView(Admin2BaseView):
             )
 
         except Exception as exc:
+            # ---------------------------------------------------------
+            # EMAIL FAILED
             # Assignment remains saved.
+            # ---------------------------------------------------------
+
             assignment.email_status = "FAILED"
             assignment.email_error = str(exc)
 
@@ -564,7 +591,8 @@ class SendAssignmentView(Admin2BaseView):
                     "error": str(exc),
                     "assignment": (
                         VolunteerAssignmentSerializer(
-                            assignment
+                            assignment,
+                            context={"request": request},
                         ).data
                     ),
                 },
@@ -1229,11 +1257,9 @@ class RetryAssignmentEmailView(APIView):
             "Instruction / Details:\n"
             f"{assignment.instruction or 'No additional instructions.'}\n\n"
             "Teaching / Checking Module: "
-            f"{os.path.basename(assignment.attachment.name) "
-            if assignment.attachment else 'Not provided'}\n"
+            f"{os.path.basename(assignment.attachment.name) if assignment.attachment else 'Not provided'}\n"
             "Homework: "
-            f"{os.path.basename(assignment.homework_attachment.name) "
-            if assignment.homework_attachment else 'Not provided'}\n\n"
+            f"{os.path.basename(assignment.homework_attachment.name) if assignment.homework_attachment else 'Not provided'}\n\n"
             "Please follow the assigned instructions.\n\n"
             "Regards, Jaago Team"
         )
