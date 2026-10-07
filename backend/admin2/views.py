@@ -9,6 +9,7 @@ from django.db.models import Sum
 from django.utils import timezone
 from django.http import HttpResponse
 from django.conf import settings
+import resend
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -454,12 +455,38 @@ class SendAssignmentView(Admin2BaseView):
         )
 
         try:
-            email = EmailMessage(
-                subject=subject,
-                body=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[volunteer.email],
-            )
+            resend.api_key = os.getenv("RESEND_API_KEY")
+
+            attachments = []
+
+        if assignment.attachment:
+            with assignment.attachment.open("rb") as file:
+            attachments.append({
+                "filename": os.path.basename(
+                assignment.attachment.name
+            ),
+            "content": file.read(),
+            })
+
+        if assignment.homework_attachment:
+        with assignment.homework_attachment.open("rb") as file:
+            attachments.append({
+            "filename": os.path.basename(
+                assignment.homework_attachment.name
+            ),
+            "content": file.read(),
+        })
+
+        email_result = resend.Emails.send({
+        "from": os.getenv(
+        "RESEND_FROM_EMAIL",
+        "onboarding@resend.dev",
+        ),
+        "to": [volunteer.email],
+        "subject": subject,
+        "text": body,
+        "attachments": attachments,
+    })
 
             # Attach teaching/checking module
             if assignment.attachment:
@@ -1142,7 +1169,6 @@ class AssignmentExcelExportView(Admin2BaseView):
         )
         return response
 
-
 class RetryAssignmentEmailView(APIView):
     permission_classes = [IsAdmin2]
 
@@ -1154,6 +1180,9 @@ class RetryAssignmentEmailView(APIView):
 
         volunteer = assignment.volunteer
 
+        # ---------------------------------------------------------
+        # Validate volunteer email
+        # ---------------------------------------------------------
         if not volunteer.email:
             return Response(
                 {
@@ -1165,6 +1194,9 @@ class RetryAssignmentEmailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ---------------------------------------------------------
+        # Only FAILED emails can be retried
+        # ---------------------------------------------------------
         if assignment.email_status != "FAILED":
             return Response(
                 {
@@ -1176,6 +1208,9 @@ class RetryAssignmentEmailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ---------------------------------------------------------
+        # Assignment information
+        # ---------------------------------------------------------
         class_name = assignment.get_assigned_class_display()
         task_name = assignment.get_task_display()
 
@@ -1187,54 +1222,90 @@ class RetryAssignmentEmailView(APIView):
         body = (
             f"Hello {volunteer.name},\n\n"
             "This is a retry of your volunteer assignment.\n\n"
-            f"You have been assigned the following task "
+            "You have been assigned the following task "
             f"for {assignment.assignment_date}.\n\n"
             f"Class: {class_name}\n"
             f"Task: {task_name}\n\n"
             "Instruction / Details:\n"
             f"{assignment.instruction or 'No additional instructions.'}\n\n"
-            f"Teaching / Checking Module: "
-            f"{os.path.basename(assignment.attachment.name) if assignment.attachment else 'Not provided'}\n"
-            f"Homework: "
-            f"{os.path.basename(assignment.homework_attachment.name) if assignment.homework_attachment else 'Not provided'}\n\n"
+            "Teaching / Checking Module: "
+            f"{os.path.basename(assignment.attachment.name) "
+            if assignment.attachment else 'Not provided'}\n"
+            "Homework: "
+            f"{os.path.basename(assignment.homework_attachment.name) "
+            if assignment.homework_attachment else 'Not provided'}\n\n"
             "Please follow the assigned instructions.\n\n"
             "Regards, Jaago Team"
         )
 
         try:
-            email = EmailMessage(
-                subject=subject,
-                body=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[volunteer.email],
-            )
+            # -----------------------------------------------------
+            # Resend API key
+            # -----------------------------------------------------
+            resend.api_key = os.getenv("RESEND_API_KEY")
 
-            # Attach teaching/checking module
+            if not resend.api_key:
+                raise Exception(
+                    "RESEND_API_KEY is not configured on the server."
+                )
+
+            # -----------------------------------------------------
+            # Prepare attachments
+            # -----------------------------------------------------
+            attachments = []
+
+            # Teaching / checking module
             if assignment.attachment:
                 with assignment.attachment.open("rb") as file:
-                    email.attach(
-                        os.path.basename(
-                            assignment.attachment.name
-                        ),
-                        file.read(),
+                    attachments.append(
+                        {
+                            "filename": os.path.basename(
+                                assignment.attachment.name
+                            ),
+                            "content": file.read(),
+                        }
                     )
 
-            # Attach homework
+            # Homework
             if assignment.homework_attachment:
                 with assignment.homework_attachment.open("rb") as file:
-                    email.attach(
-                        os.path.basename(
-                            assignment.homework_attachment.name
-                        ),
-                        file.read(),
+                    attachments.append(
+                        {
+                            "filename": os.path.basename(
+                                assignment.homework_attachment.name
+                            ),
+                            "content": file.read(),
+                        }
                     )
 
-            email.send(fail_silently=False)
+            # -----------------------------------------------------
+            # Sender email
+            # -----------------------------------------------------
+            from_email = os.getenv(
+                "RESEND_FROM_EMAIL",
+                "onboarding@resend.dev",
+            )
 
+            # -----------------------------------------------------
+            # Send email through Resend
+            # -----------------------------------------------------
+            email_result = resend.Emails.send(
+                {
+                    "from": from_email,
+                    "to": [volunteer.email],
+                    "subject": subject,
+                    "text": body,
+                    "attachments": attachments,
+                }
+            )
+
+            # -----------------------------------------------------
+            # Mark assignment as SENT
+            # -----------------------------------------------------
             assignment.email_status = "SENT"
             assignment.email_sent_at = timezone.now()
             assignment.email_error = ""
-            assignment.sender_email = settings.DEFAULT_FROM_EMAIL
+            assignment.sender_email = from_email
 
             assignment.save(
                 update_fields=[
@@ -1246,12 +1317,20 @@ class RetryAssignmentEmailView(APIView):
                 ]
             )
 
+            # -----------------------------------------------------
+            # Successful response
+            # -----------------------------------------------------
             return Response(
                 {
                     "message": (
                         "Assignment email sent successfully."
                     ),
                     "email_status": "SENT",
+                    "resend_id": (
+                        email_result.get("id")
+                        if isinstance(email_result, dict)
+                        else None
+                    ),
                     "assignment": VolunteerAssignmentSerializer(
                         assignment,
                         context={"request": request},
@@ -1261,6 +1340,9 @@ class RetryAssignmentEmailView(APIView):
             )
 
         except Exception as exc:
+            # -----------------------------------------------------
+            # Mark email as FAILED
+            # -----------------------------------------------------
             assignment.email_status = "FAILED"
             assignment.email_error = str(exc)
 
@@ -1272,6 +1354,9 @@ class RetryAssignmentEmailView(APIView):
                 ]
             )
 
+            # -----------------------------------------------------
+            # Failed response
+            # -----------------------------------------------------
             return Response(
                 {
                     "message": (
