@@ -1394,5 +1394,5 @@ class RetryAssignmentEmailView(APIView):
                     "error": str(exc),
                     "assignment_id": assignment.id,
                 },
-                status=status.HTTP_200_OK,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
