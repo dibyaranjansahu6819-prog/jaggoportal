@@ -495,7 +495,7 @@ class SendAssignmentView(Admin2BaseView):
                             "filename": os.path.basename(
                                 assignment.homework_attachment.name
                             ),
-                            "content": file.read(),
+                            "content": base64.b64encode(file.read()).decode("utf-8"),
                         }
                     )
 
@@ -1289,7 +1289,7 @@ class RetryAssignmentEmailView(APIView):
                             "filename": os.path.basename(
                                 assignment.attachment.name
                             ),
-                            "content": file.read(),
+                            "content": base64.b64encode(file.read()).decode("utf-8"),
                         }
                     )
 
