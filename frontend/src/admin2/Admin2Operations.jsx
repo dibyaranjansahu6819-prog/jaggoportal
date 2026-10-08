@@ -143,24 +143,49 @@ export function Admin2Assignments() {
 
   const retry = async (id) => {
     setRetryingId(id);
+    setError("");
+
     try {
-      const response = await API.post(`/admin2/assignments/${id}/retry-email/`);
-      const updatedAssignment = response.data?.assignment;
-    if (updatedAssignment) {
-    setRows((items) =>
-      items.map((item) =>
-      item.id === id ? updatedAssignment : item
-      )
-    );
-    } else {
-    await load();
-    }
+        const response = await API.post(
+            `/admin2/assignments/${id}/retry-email/`
+        );
+
+        console.log("RETRY EMAIL RESPONSE:", response.data);
+
+        const updatedAssignment = response.data?.assignment;
+
+        if (updatedAssignment) {
+            setRows((items) =>
+                items.map((item) =>
+                    item.id === id ? updatedAssignment : item
+                )
+            );
+        } else {
+            await load();
+        }
+
     } catch (err) {
-      setError(err?.response?.data?.detail || "Unable to retry this email.");
+        console.error("========== EMAIL RETRY FAILED ==========");
+        console.error("HTTP STATUS:", err.response?.status);
+        console.error("BACKEND RESPONSE:", err.response?.data);
+        console.error("ERROR MESSAGE:", err.message);
+        console.error("========================================");
+
+        const backendError =
+            err.response?.data?.error ||
+            err.response?.data?.detail ||
+            "Unable to retry this email.";
+
+        setError(backendError);
+
+        alert(backendError);
+
+        await load();
+
     } finally {
-      setRetryingId(null);
+        setRetryingId(null);
     }
-  };
+};
 
   return (
     <>
