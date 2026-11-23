@@ -20,6 +20,7 @@ export const Route = createFileRoute("/admin2/signin")({
       submitLabel="SIGN IN"
       successMessage="Signed in successfully."
       redirectTo="/admin2/dashboard"
+      demoRole="ADMIN2"
       onSubmit={async (values) => {
         const data = await loginWithUsername(values.username, values.password);
         if (data.profile?.role !== "ADMIN2") {

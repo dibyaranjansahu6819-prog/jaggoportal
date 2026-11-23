@@ -18,6 +18,7 @@ export const Route = createFileRoute("/teacher/signin")({
       title="Volunteer Sign In"
       subtitle="Sign in with your Teacher User ID to see your assigned classes, work sessions and XP."
       redirectTo="/volunteer/dashboard"
+      demoRole="VOLUNTEER"
       submitLabel="SIGN IN"
       successMessage="Signed in successfully."
       onSubmit={(values) => loginVolunteer(values.user_id, values.password)}

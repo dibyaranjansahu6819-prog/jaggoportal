@@ -79,7 +79,9 @@ const API = axios.create({
 // ever checked.
 const isLoginEndpoint = (url) =>
     Boolean(url) &&
-    (url.includes("/auth/login") || url.includes("/teachers/login"));
+    (url.includes("/auth/login") ||
+        url.includes("/auth/demo-login") ||
+        url.includes("/teachers/login"));
 
 // Attach the JWT access token to every outgoing request except login.
 API.interceptors.request.use((config) => {
@@ -182,6 +184,38 @@ export const loginWithUsername = async (username, password) => {
         role: data.profile?.role,
         user: data.user,
     });
+
+    return data;
+};
+
+/* Demo mode: one-click sign in (backend must run with DEMO_MODE=true).
+   role: "ADMIN1" | "ADMIN2" | "VOLUNTEER". Stores the session exactly like
+   the matching normal login does. */
+export const loginDemo = async (role) => {
+    const response = await API.post("/auth/demo-login/", { role });
+    const data = response.data;
+
+    if (role === "VOLUNTEER") {
+        tokenStorage.setSession({
+            access: data.access,
+            refresh: data.refresh,
+            role: data.role || "TEACHER_VOLUNTEER",
+            user: {
+                user_id: data.user_id,
+                name: data.name,
+                email: data.email,
+                course: data.course,
+                subject: data.subject,
+            },
+        });
+    } else {
+        tokenStorage.setSession({
+            access: data.tokens?.access,
+            refresh: data.tokens?.refresh,
+            role: data.profile?.role,
+            user: data.user,
+        });
+    }
 
     return data;
 };

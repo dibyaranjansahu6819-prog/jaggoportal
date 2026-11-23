@@ -4,6 +4,14 @@ from django.db import migrations, models
 def rename_section_to_group(apps, schema_editor):
     connection = schema_editor.connection
 
+    if connection.vendor == "sqlite":
+        with connection.cursor() as cursor:
+            cursor.execute("PRAGMA table_info(students_student)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if "section" in columns and "group" not in columns:
+                cursor.execute('ALTER TABLE "students_student" RENAME COLUMN "section" TO "group"')
+        return
+
     with connection.cursor() as cursor:
         cursor.execute(
             """

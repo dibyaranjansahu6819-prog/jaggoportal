@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .demo import DemoLoginView
 from .views import (
     CurrentUserView,
     LoginView,
@@ -13,6 +14,13 @@ urlpatterns = [
         "login/",
         LoginView.as_view(),
         name="login",
+    ),
+
+    # Demo-mode one-click login (only when DEMO_MODE=true)
+    path(
+        "demo-login/",
+        DemoLoginView.as_view(),
+        name="demo-login",
     ),
 
     # Forgot password

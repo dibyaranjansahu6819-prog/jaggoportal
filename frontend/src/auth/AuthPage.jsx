@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import API from "../services/api";
+import API, { loginDemo } from "../services/api";
 import "../signup/signup.css";
 import "./auth.css";
 
@@ -33,6 +33,7 @@ export default function AuthPage({
   links = [],
   redirectTo,
   disabled = false,
+  demoRole,
 }) {
   const navigate = useNavigate();
   const [values, setValues] = useState(() =>
@@ -92,6 +93,25 @@ export default function AuthPage({
     }
   };
 
+  const handleDemo = async () => {
+    setError("");
+    setStatus(null);
+    setSubmitting(true);
+    try {
+      await loginDemo(demoRole);
+      navigate({ to: redirectTo });
+    } catch (err) {
+      setError(
+        err?.response?.status === 404
+          ? "Demo mode is not enabled on this server."
+          : err?.response?.data?.detail ||
+              "Unable to start demo mode. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="signup-page jaago-page auth-page">
       <img className="jaago-ornament jaago-ornament-gold" src="/jaago-bg-gold-motif.png" alt="" />
@@ -133,6 +153,18 @@ export default function AuthPage({
           <button className="signup-button" type="submit" disabled={submitting || disabled}>
             {submitting ? "Please wait…" : submitLabel}
           </button>
+
+          {demoRole && redirectTo ? (
+            <button
+              className="signup-button"
+              type="button"
+              onClick={handleDemo}
+              disabled={submitting}
+              style={{ background: "transparent", color: "inherit", border: "2px dashed currentColor" }}
+            >
+              TRY DEMO MODE
+            </button>
+          ) : null}
         </form>
 
         <div className="auth-links">
